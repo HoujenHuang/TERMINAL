@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<head>
+	<meta charset="utf-8" name="referrer" content="strict-origin-when-cross-origin">
+	<title>ТЕРМИНАЛ</title>
+	<link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/7/7e/Digital_gerb_russia_max.svg" type="image/svg/">
+	<link id="theme1" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
+
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
+	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/script.js"></script>
+	<script src="https://www.youtube.com/iframe_api"></script>
+	<script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
+	<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
+	<script src="https://cdn.amcharts.com/lib/5/map.js"></script>
+	<script src="https://cdn.amcharts.com/lib/5/geodata/worldLow.js"></script>
+	<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+</head>
+<body>
+	<div id="radio-player" class="invisible"></div>
+	<div id="outputList" style="z-index: 2; position: absolute; filter: url(#glitch) url(#chromatic-aberration);"></div>
+
+	<div id="container" class="container">
+		<!-- Left panel -->
+
+		<div id="leftTerminal" class="split-container">
+			<span style="margin-left:5px">SYSTEM PANEL<button class="sideBtn" style="float:right; text-align:right; margin-right:5px;" onclick="closeSide()">&#11164;</button></span>
+
+			<div class="mini-info-container" style="text-align:center;">
+				<b class="mini-info" id="clock" style="font-size:2em;">01:23:48</b>
+			</div>
+			<div class="mini-info-container">
+				<div class="mini-info">
+					<span id="year">1986</span><br>
+					<span id="month">APR</span> <span id="day">26</span>
+				</div>
+				<div class="mini-info">
+					<b>UPTIME</b><br>
+					<div id="timer">00:00:00</div>
+				</div>
+				<div class="mini-info">
+					<b>BROWSER</b><br>
+					<div id="browser">Calculating...</div>
+				</div>
+			</div>
+
+			<div class="split">
+				<div class="label"><b>FPS:</b> <span id="fpsText">Calculating...</span></div>
+				<canvas id="fpsChart"></canvas>
+			</div>
+
+			<div class="split">
+				<div class="label"><b>MEMORY:</b> <span id="memText">Calculating...</span></div>
+				<canvas id="memChart"></canvas>
+			</div>
+
+			<div class="mini-info-container">
+				<div class="mini-info">
+					<b id="batteryTitle">BATTERY</b><br>
+					<span id="battery">Calculating...</span>
+				</div>
+
+				<div class="mini-info">
+					<button onclick="toggleBatterySaver()">BATTERY SAVER</button>
+				</div>
+			</div>
+		</div>
+
+		<div id="terminal" class="terminal-container">
+			<b id="splash" class="invisible" style="text-align: center;">
+				████████╗███████╗██████╗ ███╗   ███╗██╗  ███╗██╗  ██╗ █████╗  ███████╗<br>
+				╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║ ████║██║  ██║██╔══██╗ ██╔══██║<br>
+				   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██║███████║███████║ ██║  ██║<br>
+				   ██║   ██╔══╝  ██╔═══╝ ██║╚██╔╝██║████╔╝██║██╔══██║██╔══██║ ██║  ██║<br>
+				   ██║   ███████╗██║     ██║ ╚═╝ ██║███╔╝ ██║██║  ██║██║  ██║███║  ██║<br>
+				   ╚═╝   ╚══════╝╚═╝     ╚═╝     ╚═╝╚══╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══╝  ╚═╝
+
+				<!-- Sidebar collapse buttons -->
+
+				<button id="sideBtnLeft" class="sideBtn" onclick="openSide()" style="float: left; margin-left: 5px; opacity: 0;">&#11166;</button>
+				<button id="sideBtnRight" class="sideBtn" style="float: right; text-align: right; margin-right: 5px; opacity: 0;" onclick="openSide()">&#11164;</button>
+			</b>
+
+			<div class="terminal-container" style="height: calc(100% - 6vw - 23px); flex-direction: row;">
+				<div id="terminalContent" class="terminal" style="opacity: 0;">
+					<!-- Stdout, or the stuff that shows up after you type something for non-Linux users -->
+
+					<div id="stdout">
+						Type 'help' to see list of available commands<br>
+						Type Esc key to return to home directory<br><br>
+					</div>
+
+					<!-- Literally the only thing most people would come on The TERMINAL for -->
+
+					<div id="games" class="program">
+						<section class="flexbox">
+							<div class="normal">
+								<span><b><span class="user">guest</span>@games:~$</b> find&nbsp;</span>
+							</div>
+							<div class="stretch">
+								<input type="text" id="file-search" onkeyup="handleSearch()" autocomplete="off">
+							</div>
+						</section>
+
+						CAUTION: Some files may be corrupted.
+						<div id="sections-container"></div>
+					</div>
+
+					<!-- SPAAAAACE! -->
+
+					<div id="telescope" class="program invisible">
+						=====<br>
+						<b>ГЛАЗ-1</b><br><br>
+						Наш космос – это чудесное место.<br><br>
+						<button id="teleStatus" onclick="toggleBackground()">> STATUS: Activated</button><br>
+						<button onclick="setRandomBackground()">> Operate Orbital Telescope</button><br>
+					</div>
+
+					<!-- Super epic music -->
+
+					<div id="radio" class="program invisible">
+						=====<br>
+						<b>УВБ-76</b><br><br>
+						Вы слушаете радио «Советская волна». Рекомендуется использовать наушники.<br><br>
+						<div id="songTitle">ERROR: UVB-76 Radio Station not connected</div><br>
+						<button id="playBtn" onclick="togglePlayback()">> PAUSE</button><br>
+					</div>
+
+					<!-- YouTube player -->
+
+					<div id="youtube" class="program invisible">
+						=====<br>
+						<section class="search-box flexbox">
+							<div class="normal">
+								<span><b><span class="user">guest</span>@youtube:~$</b>&nbsp;</span>
+							</div><br><br>
+							<div class="stretch">
+								<input id="query" type="text" autocomplete="off">
+							</div>
+						</section>
+
+						<button id="youtubeSearch">Search</button>
+
+						<div id="videoDisplay" class="invisible">
+							<div id="mainVideoDisplay"></div>
+							<h2 id="playingTitle"></h2>
+						</div>
+
+						<div id="results" class="video-grid"></div>
+					</div>
+
+					<!-- Colors -->
+
+					<div id="color" class="program invisible">
+						<button id="crtToggle" onclick="toggleCrt()">CRT Effects</button><br><br>
+						Preset Themes<br><br>
+						<button id="bgGreen">P1 Green Phosphor</button>
+						<button id="bgAmber">P3 Amber Phosphor</button>
+						<button id="bgWhite">P4 White Phosphor</button><br><br>
+
+						Theme<br><br>
+						R <input type="number" id="r" value="51" min="0" max="255">
+						G <input type="number" id="g" value="255" min="0" max="255">
+						B <input type="number" id="b" value="51" min="0" max="255"><br><br>
+
+						Background<br><br>
+						R <input type="number" id="bg-r" value="0" min="0" max="255">
+						G <input type="number" id="bg-g" value="0" min="0" max="255">
+						B <input type="number" id="bg-b" value="0" min="0" max="255"><br><br>
+
+						Text<br><br>
+						R <input type="number" id="txt-r" value="51" min="0" max="255">
+						G <input type="number" id="txt-g" value="255" min="0" max="255">
+						B <input type="number" id="txt-b" value="51" min="0" max="255">
+					</div>
+
+					<!-- Editor's doc (for admins only) -->
+
+					<div id="login" class="program invisible">
+						<section class="flexbox">
+							<div class="normal">
+								Email:&nbsp;
+							</div>
+							<div class="stretch">
+								<input type="text" id="email">
+							</div>
+						</section>
+
+						<section class="flexbox">
+							<div class="normal">
+								Password:&nbsp;
+							</div>
+							<div class="stretch">
+								<input type="password" id="password">
+							</div>
+						</section>
+
+						<button onclick="login()">Login</button><br><br>
+
+						<b id="adminAlert" class="invisible">Wrong username/password</b>
+					</div>
+
+					<!-- Command input -->
+
+					<div id="commandInput" class="invisible">
+						<section class="flexbox">
+							<div class="normal">
+								<b><span class="user">guest</span>@terminal:~$</b>&nbsp;
+							</div>
+							<div class="stretch">
+								<input id="stdin" type="text" autocomplete="off">
+							</div>
+						</section>
+					</div>
+				</div>
+
+				<div id="admin" class="iframe-container program invisible">
+					<iframe id="adminFrame" style="height: 100%; border: none;"></iframe>
+				</div>
+			</div>
+
+			<!-- HTML editor -->
+
+			<div id="html" class="program invisible">
+				<button onclick="runEditor()" class="html-btn">Run Code</button>
+				<span>
+					Theme:
+					<select id="selectStyle">
+						<option>agate</option>
+						<option>an-old-hope</option>
+						<option>androidstudio</option>
+						<option>arta</option>
+						<option>atom-one-dark-reasonable</option>
+						<option>atom-one-dark</option>
+						<option>brown-paper</option>
+						<option>codepen-embed</option>
+						<option>dark</option>
+						<option>devibeans</option>
+						<option>far</option>
+						<option>felipec</option>
+						<option>github-dark-dimmed</option>
+						<option>github-dark</option>
+						<option>gml</option>
+						<option>gradient-dark</option>
+						<option>hybrid</option>
+						<option>ir-black</option>
+						<option>isbl-editor-dark</option>
+						<option>kimbie-dark</option>
+						<option>lioshi</option>
+						<option>monokai-sublime</option>
+						<option>monokai</option>
+						<option>night-owl</option>
+						<option>nnfx-dark</option>
+						<option selected>nord</option>
+						<option>obsidian</option>
+						<option>panda-syntax-dark</option>
+						<option>paraiso-dark</option>
+						<option>pojoaque</option>
+						<option>purebasic</option>
+						<option>qtcreator-dark</option>
+						<option>rainbow</option>
+						<option>shades-of-purple</option>
+						<option>srcery</option>
+						<option>stackoverflow-dark</option>
+						<option>sunburst</option>
+						<option>tokyo-night-dark</option>
+						<option>tomorrow-night-blue</option>
+						<option>tomorrow-night-bright</option>
+						<option>vs2015</option>
+						<option>xt256</option>
+						<option>base16/3024</option>
+						<option>base16/apathy</option>
+						<option>base16/apprentice</option>
+						<option>base16/ashes</option>
+						<option>base16/atelier-cave</option>
+						<option>base16/atelier-dune</option>
+						<option>base16/atelier-estuary</option>
+						<option>base16/atelier-forest</option>
+						<option>base16/atelier-heath</option>
+						<option>base16/atelier-lakeside</option>
+						<option>base16/atelier-plateau</option>
+						<option>base16/atelier-savanna</option>
+						<option>base16/atelier-seaside</option>
+						<option>base16/atelier-sulphurpool</option>
+						<option>base16/atlas</option>
+						<option>base16/bespin</option>
+						<option>base16/black-metal-bathory</option>
+						<option>base16/black-metal-burzum</option>
+						<option>base16/black-metal-dark-funeral</option>
+						<option>base16/black-metal-gorgoroth</option>
+						<option>base16/black-metal-immortal</option>
+						<option>base16/black-metal-khold</option>
+						<option>base16/black-metal-marduk</option>
+						<option>base16/black-metal-mayhem</option>
+						<option>base16/black-metal-nile</option>
+						<option>base16/black-metal-venom</option>
+						<option>base16/black-metal</option>
+						<option>base16/bright</option>
+						<option>base16/brogrammer</option>
+						<option>base16/brush-trees-dark</option>
+						<option>base16/chalk</option>
+						<option>base16/circus</option>
+						<option>base16/classic-dark</option>
+						<option>base16/codeschool</option>
+						<option>base16/danqing</option>
+						<option>base16/darcula</option>
+						<option>base16/dark-violet</option>
+						<option>base16/darkmoss</option>
+						<option>base16/darktooth</option>
+						<option>base16/decaf</option>
+						<option>base16/default-dark</option>
+						<option>base16/dracula</option>
+						<option>base16/edge-dark</option>
+						<option>base16/eighties</option>
+						<option>base16/embers</option>
+						<option>base16/equilibrium-dark</option>
+						<option>base16/equilibrium-gray-dark</option>
+						<option>base16/espresso</option>
+						<option>base16/eva-dim</option>
+						<option>base16/eva</option>
+						<option>base16/framer</option>
+						<option>base16/gigavolt</option>
+						<option>base16/google-dark</option>
+						<option>base16/grayscale-dark</option>
+						<option>base16/green-screen</option>
+						<option>base16/gruvbox-dark-hard</option>
+						<option>base16/gruvbox-dark-medium</option>
+						<option>base16/gruvbox-dark-pale</option>
+						<option>base16/gruvbox-dark-soft</option>
+						<option>base16/hardcore</option>
+						<option>base16/harmonic16-dark</option>
+						<option>base16/heetch-dark</option>
+						<option>base16/helios</option>
+						<option>base16/hopscotch</option>
+						<option>base16/horizon-dark</option>
+						<option>base16/humanoid-dark</option>
+						<option>base16/ia-dark</option>
+						<option>base16/icy-dark</option>
+						<option>base16/ir-black</option>
+						<option>base16/isotope</option>
+						<option>base16/kimber</option>
+						<option>base16/materia</option>
+						<option>base16/material-darker</option>
+						<option>base16/material-palenight</option>
+						<option>base16/material-vivid</option>
+						<option>base16/material</option>
+						<option>base16/mellow-purple</option>
+						<option>base16/mocha</option>
+						<option>base16/monokai</option>
+						<option>base16/nebula</option>
+						<option>base16/nord</option>
+						<option>base16/nova</option>
+						<option>base16/ocean</option>
+						<option>base16/oceanicnext</option>
+						<option>base16/onedark</option>
+						<option>base16/outrun-dark</option>
+						<option>base16/papercolor-dark</option>
+						<option>base16/paraiso</option>
+						<option>base16/pasque</option>
+						<option>base16/phd</option>
+						<option>base16/pico</option>
+						<option>base16/pop</option>
+						<option>base16/porple</option>
+						<option>base16/qualia</option>
+						<option>base16/railscasts</option>
+						<option>base16/rebecca</option>
+						<option>base16/ros-pine-moon</option>
+						<option>base16/ros-pine</option>
+						<option>base16/sandcastle</option>
+						<option>base16/seti-ui</option>
+						<option>base16/silk-dark</option>
+						<option>base16/snazzy</option>
+						<option>base16/solar-flare</option>
+						<option>base16/solarized-dark</option>
+						<option>base16/spacemacs</option>
+						<option>base16/summercamp</option>
+						<option>base16/summerfruit-dark</option>
+						<option>base16/synth-midnight-terminal-dark</option>
+						<option>base16/tender</option>
+						<option>base16/tomorrow-night</option>
+						<option>base16/twilight</option>
+						<option>base16/unikitty-dark</option>
+						<option>base16/vulcan</option>
+						<option>base16/windows-10</option>
+						<option>base16/windows-95</option>
+						<option>base16/windows-high-contrast</option>
+						<option>base16/windows-nt</option>
+						<option>base16/woodland</option>
+						<option>base16/xcode-dusk</option>
+						<option>base16/woodland</option>
+						<option>base16/zenburn</option>
+					</select>
+
+					Language:
+						<select id="selectLanguage">
+						<option value="language-html">HTML</option>
+						<option value="language-python">Python</option>
+					</select>
+				</span>
+
+				<div class="container" style="height: calc(100vh - 10vw - 22px); margin-bottom: 5px;">
+					<div id="divCodeWrapper" style="height:100%;">
+						<pre><code style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" class="lineNumbers"></code></pre>
+						<pre><code id="lineNumbers" style="opacity: 0.5;"></code></pre>
+						<pre id="preCode"><code id="codeBlock" class="language-html"></code></pre>
+						<textarea id="codebox" wrap="soft" spellcheck="false"></textarea>
+					</div>
+
+					<iframe id="preview-window" style="width:50%; height:100%; background: white; margin-left: 5px;"></iframe>
+					<textarea id="rte" class="invisible" style="width:50%; height:100%; margin-left: 5px; color: var(--txt);" disabled></textarea>
+				</div>
+			</div>
+		</div>
+
+		<!-- Right panel -->
+
+		<div id="rightTerminal" class="split-container">
+			<span style="margin-right:5px; text-align:right;">NETWORK PANEL<button class="sideBtn" onclick="closeSide()" style="float:left; margin-left:5px;">&#11166;</button></span>
+			<div class="mini-info-container">
+				<div class="mini-info">
+					<b>STATUS</b><br>
+					<span id="status">Calculating...</span>
+				</div>
+
+				<div class="mini-info">
+					<b>IP</b><br>
+					<span id="ip">Calculating...</span>
+				</div>
+			</div>
+
+			<div class="split">
+				<b>WORLD VIEW</b><br>
+				<b>ENDPOINT LAT/LON</b><span id="coords" style="float:right;">00.0000, 00.0000</span>
+				<button id="spinBtn">Spin</button>
+				<button id="homeBtn">Home</button>
+				<div id="chartdiv"></div>
+			</div>
+
+			<div class="mini-info-container">
+				<div class="mini-info">
+					<b>HIGH:</b> <span id="high"></span><br>
+					<b>LOW:</b> <span id="low"></span>
+				</div>
+
+				<div class="mini-info">
+					<b>SOL:</b> <span id="sol"></span><br>
+					<b>LOCATION:</b> <a href="https://mars.nasa.gov/layout/embed/image/mslweather/">MARS</a>
+				</div>
+			</div>
+
+			<div class="split">
+				<div class="label"><b>NETWORK SPEED:</b> <span id="speedText">Calculating...</span></div>
+				<canvas id="speedChart"></canvas>
+			</div>
+		</div>
+	</div>
+
+	<!-- Cool effects -->
+
+	<div id="glowline" class="glow-line"></div>
+	<div id="scanline" class="scanlines"></div>
+	<div id="bg" class="bg"></div>
+
+	<svg style="display: none;">
+		<!-- Glitch effect -->
+		<defs>
+			<filter id="glitch">
+				<feTurbulence type="fractalNoise" baseFrequency="0.002 0.2" numOctaves="2" seed="1" result="noise" />
+
+				<feDisplacementMap id="displacement" in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="R" />
+			</filter>
+		</defs>
+
+		<!-- Chromatic aberration (bruh speak english) -->
+
+		<filter id="chromatic-aberration" x="-10%" y="-10%" width="120%" height="120%">
+			<feColorMatrix in="SourceGraphic" type="matrix" 
+				values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red"/>
+			<feOffset in="red" dx="-1" dy="0" result="red-shift"/>
+
+			<feColorMatrix in="SourceGraphic" type="matrix" 
+				values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green"/>
+
+			<feColorMatrix in="SourceGraphic" type="matrix" 
+				values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue"/>
+			<feOffset in="blue" dx="1" dy="0" result="blue-shift"/>
+
+			<feBlend in="red-shift" in2="green" mode="screen" result="red-green"/>
+			<feBlend in="red-green" in2="blue-shift" mode="screen"/>
+		</filter>
+	</svg>
+</body>
+</html>
