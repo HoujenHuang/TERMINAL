@@ -805,7 +805,7 @@ codebox.addEventListener('keydown', (e) => {
 const themeLink = document.getElementById("theme1");
 
 document.getElementById("selectStyle").addEventListener("change", (e) => {
-	themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
+	themeLink.href = `https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/${e.target.value}.min.css`;
 
 	themeLink.onload = () => {
 		setTimeout(setTheme, 50);
@@ -1252,7 +1252,7 @@ function getRandomSong() {
 function onYouTubeIframeAPIReady() {
     const firstSong = getRandomSong();
 
-    radioPlayer = new YT.Player("radio-player", {
+    radioPlayer = new YT.Player("radioPlayer", {
         height: "0",
         width: "0",
         videoId: firstSong.id,
