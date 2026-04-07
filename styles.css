@@ -1,0 +1,457 @@
+/* Basic syntax */
+
+* {
+	box-sizing: border-box;
+	padding: 0;
+	text-shadow: 0 0 5px var(--txt);
+}
+
+:root {
+	--theme: rgb(51, 255, 51);
+	--bg: rgb(0, 0, 0);
+	--txt: rgb(51, 255, 51);
+}
+
+body {
+	background: var(--bg);
+	height: calc(100vh - 20px);
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	background-attachment: fixed;
+	margin: 5px;
+}
+
+.flicker {
+	animation: flicker 0.1s infinite;
+}
+
+@keyframes flicker {
+	0%, 100% { opacity: 0.95; }
+	50% { opacity: 1; }
+}
+
+b {
+	color: var(--theme);
+}
+
+a {
+	color: var(--theme);
+}
+
+.stdout {
+	list-style-type: none;
+}
+
+.invisible {
+	display: none;
+}
+
+/* Fade in animation for the splash screen */
+
+.fade-in {
+	animation: fadeIn 1s ease-in forwards;
+}
+
+@keyframes fadeIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+/* Textbox flexing. I've spent so much time on this, please help */
+
+.flexbox {
+	display: flex;
+}
+
+.flexbox .stretch {
+	flex: 1;
+}
+
+.flexbox .normal {
+	flex: 0;
+}
+
+.flexbox div input {
+	field-sizing: content;
+	width: 100%;
+	background-color: transparent;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	caret-shape: block;
+	border: none;
+	padding: 0;
+	outline: none;
+}
+
+.flexbox div span {
+	white-space: nowrap;
+}
+
+/* A lot of inputs */
+
+input[type="number"] {
+	width: 4vw;
+	background-color: transparent;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	caret-shape: block;
+	border: none;
+	padding: 0;
+	outline: none;
+}
+
+input[type="button"], button {
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	width: 100%;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	text-align: left;
+	padding: 0px;
+}
+
+input[type="button"]:hover, button:hover {
+	background: var(--txt);
+	color: var(--bg);
+}
+
+/* Button that expands the sidepanels */
+
+.sideBtn {
+	width: 1vw;
+	transition: 0.5s;
+}
+
+/* Headers for the games */
+
+.letter-header {
+	color: var(--txt);
+	font-weight: bold;
+	padding: 5px 0 5px 0;
+}
+
+.file-size {
+	float: right;
+}
+
+/* Containers */
+
+.container {
+	display: flex;
+	width: 100%;
+	height: calc(100vh - 8px);
+	filter: url(#chromatic-aberration) url(#glitch);
+}
+
+#container.crt-off {
+	filter: none;
+}
+
+.split-container {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	width: 0%;
+	transition: 0.5s;
+}
+
+.split {
+	flex: 1;
+	margin: 5px;
+	padding: 5px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+}
+
+.mini-info-container {
+	display: flex;
+	flex-direction: row;
+	margin: 5px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+}
+
+.mini-info {
+	flex: 1;
+	margin: 5px;
+}
+
+.terminal-container {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.terminal {
+	flex: 1;
+	position: relative;
+	overflow: scroll;
+	overflow-x: hidden;
+	margin: 5px;
+	padding: 5px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+}
+
+/* Scrollbar */
+
+::-webkit-scrollbar {
+	width: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: color-mix(in srgb, var(--theme), transparent 50%);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--theme);
+}
+
+/* YouTube and whatnot */
+
+.video-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 5px;
+	margin-top: 5px;
+}
+
+.video-card {
+	cursor: pointer;
+	padding: 10px;
+	border-radius: 5px;
+	transition: 0.5s;
+}
+
+.video-card:hover {
+	background: color-mix(in srgb, var(--theme), transparent 80%);
+}
+
+.video-card img {
+	width: 100%;
+	border-radius: 5px;
+}
+
+.video-card p {
+	margin: 10px 0 5px;
+	font-weight: bold;
+}
+
+iframe {
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	border: none;
+}
+
+.iframe-container {
+	flex: 1;
+	position: relative;
+	overflow: scroll;
+	overflow-x: hidden;
+	margin: 5px;
+	border: 2px solid var(--theme);
+}
+
+.iframe-container::-webkit-scrollbar {
+	display: none;
+}
+
+/* Graphs */
+
+canvas {
+	width: 100%;
+}
+
+/* Button that runs HTML in the editor */
+
+.html-btn {
+	width: 20%;
+	background: var(--theme);
+	color: var(--bg);
+	margin: 5px 0;
+}
+
+/* The actual editor */
+
+#preCode code, textarea, #lineNumbers, .lineNumbers {
+	font-family: "Courier New", monospace;
+	font-size: 1vw;
+	line-height: 150%;
+}
+
+#divCodeWrapper {
+	height: 50vh;
+	width: 50vw;
+	overflow: hidden;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+	position: relative;
+	text-shadow: none;
+}
+
+#preCode {
+	height: calc(100% + 30px);
+	width: 100%;
+	position: absolute;
+	top: 0;
+	left: 50px;
+	overflow: hidden;
+	padding: 0;
+	margin: 0;
+	background: #1b1b1b;
+	border: none;
+	text-shadow: none;
+}
+
+#preCode code {
+	padding: 15px;
+	height: calc(100% - 30px);
+	width: calc(100% - 30px);
+	overflow-y: scroll;
+	overflow-x: auto;
+}
+
+#preCode span {
+	text-shadow: none;
+}
+
+textarea {
+	overflow-y: scroll;
+	white-space: nowrap;
+	padding: 15px;
+	background-color: var(--bg);
+	color: var(--txt);
+	caret-color: white;
+	border: 2px solid var(--theme);
+	outline: none;
+	resize: none;
+	outline: none;
+}
+
+#codebox {
+	position: absolute;
+	top: 0;
+	left: 50px;
+	height: 100%;
+	width: calc(100% - 50px);
+	padding-left: 13px;
+	z-index: 2;
+	background-color: rgba(0, 0, 0, 0);
+	color: rgba(0, 0, 0, 0);
+	border: none;
+	border-left: 2px solid var(--theme);
+	text-shadow: none;
+}
+
+#lineNumbers {
+	position: absolute;
+	top: 0;
+	left: 0;
+	padding: 15px 5px;
+	height: calc(100% - 30px);
+	width: 100px;
+	overflow: hidden;
+}
+
+/* Dropdown menus */
+
+select, ::picker(select) {
+	appearance: base-select;
+}
+
+select {
+	font-size: 1vw;
+	font-family: "Courier New", monospace;
+	margin: 0;
+	background-color: none;
+	color: var(--theme);
+	border: none;
+	outline: none;
+}
+
+option {
+	font-size: 1vw;
+	font-family: "Courier New", monospace;
+	margin: 0;
+	background-color: var(--bg);
+	color: var(--theme);
+	text-shadow: none;
+	border: none;
+	outline: none;
+}
+
+option:hover {
+	background: var(--theme);
+	color: var(--bg);
+}
+
+/* Gives that terminal the 90s effects */
+
+.scanlines {
+	content: "";
+	position: fixed;
+	pointer-events: none;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: repeating-linear-gradient(
+to bottom,
+transparent 0,
+transparent 1px,
+rgba(0, 0, 0, .2) 2px,
+rgba(0, 0, 0, .2) 4px
+	)
+}
+
+.glow-line {
+	width: 100%;
+	height: 100px;
+	z-index: 1;
+	background: linear-gradient(
+0deg,
+rgba(0, 0, 0, 0) 0%,
+rgba(255, 255, 255, 1) 10%,
+rgba(0, 0, 0, 0.1) 100%
+	);
+	pointer-events: none;
+	position: fixed;
+	bottom: 100%;
+	left: 0;
+	animation: scan 6s linear infinite;
+}
+
+@keyframes scan {
+	0% { bottom: 100%; opacity: 0.1; }
+	80% { bottom: 100%; opacity: 0.1; }
+	100% { bottom: 0%; opacity: 0; }
+}
+
+.bg {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100vh;
+	z-index: -1;
+	background-size: cover;
+	background-position: center;
+	opacity: 0;
+}
+
+.fade-in-bg {
+	animation: fade-in-bg 1s ease-in forwards;
+}
+
+@keyframes fade-in-bg {
+	from { opacity: 0; }
+	to { opacity: 0.25; }
+}
+
+/* I don't know why the world map is all the way down here */
+
+#chartdiv {
+	width: 100%;
+	height: calc(100% - 4vw - 10px);
+}
