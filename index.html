@@ -5,19 +5,17 @@
 	<link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/7/7e/Digital_gerb_russia_max.svg" type="image/svg/">
 	<link id="theme1" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
-	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/script.js"></script>
 	<script src="https://www.youtube.com/iframe_api"></script>
 	<script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/map.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/geodata/worldLow.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
 </head>
 <body>
-	<div id="radio-player" class="invisible"></div>
+	<div id="radioPlayer" class="invisible"></div>
 	<div id="outputList" style="z-index: 2; position: absolute; filter: url(#glitch) url(#chromatic-aberration);"></div>
 
 	<div id="container" class="container">
@@ -457,8 +455,8 @@
 
 	<!-- Cool effects -->
 
-	<div id="glowline" class="glow-line"></div>
-	<div id="scanline" class="scanlines"></div>
+	<div id="glowline" class="glowline"></div>
+	<div id="scanline" class="scanline"></div>
 	<div id="bg" class="bg"></div>
 
 	<svg style="display: none;">
@@ -490,4 +488,3 @@
 		</filter>
 	</svg>
 </body>
-</html>
