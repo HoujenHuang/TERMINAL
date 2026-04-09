@@ -13,7 +13,7 @@
 }
 
 body {
-	background: var(--bg);
+	background-color: var(--bg);
 	height: calc(100vh - 20px);
 	color: var(--txt);
 	font: 1vw "Courier New", monospace;
@@ -30,12 +30,12 @@ body {
 	50% { opacity: 1; }
 }
 
-b, a {
+b {
 	color: var(--theme);
 }
 
-#stdout, #color {
-	color: var(--txt);
+a {
+	color: var(--theme);
 }
 
 .stdout {
@@ -445,18 +445,6 @@ option:hover {
 }
 
 @keyframes fade-in-bg {
-	from {
-		opacity: 0;
-	}
-
-	to {
-		opacity: 0.25;
-	}
-}
-
-/* I don't know why the world map is all the way down here */
-
-#chartdiv {
-	width: 100%;
-	height: calc(100% - 4vw - 10px);
+	from { opacity: 0; }
+	to { opacity: 0.25; }
 }
