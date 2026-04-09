@@ -802,14 +802,11 @@ codebox.addEventListener('keydown', (e) => {
 
 // Sets the style
 
-const themeLink = document.getElementById("theme1");
+const themeLink = document.getElementById("theme");
 
 document.getElementById("selectStyle").addEventListener("change", (e) => {
-	themeLink.href = `https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/${e.target.value}.min.css`;
-
-	themeLink.onload = () => {
-		setTimeout(setTheme, 50);
-	};
+	themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
+	setTimeout(setTheme, 50);
 });
 
 // Sets the theme
@@ -834,6 +831,7 @@ function setTheme() {
 	r.style.setProperty("--bg", hljs.backgroundColor || hljs.background);
 	r.style.setProperty("--txt", hljs.color || subst.color);
 	r.style.setProperty("--theme", comment.color);
+	document.body.style.backgroundColor = "var(--bg)";
 }
 
 // Sets the language
@@ -1034,6 +1032,11 @@ document.body.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") {
 		e.preventDefault();
 
+		if (document.getElementById("html").style.display = "block") {
+			isCrtEnabled = false;
+			toggleCrt();
+		}
+
 		document.querySelectorAll(".program").forEach(el => { 
 			el.style.display = "none"; 
 		});
@@ -1054,9 +1057,6 @@ document.body.addEventListener("keydown", (e) => {
 			rootColor.style.setProperty("--theme", colorConfig.theme);
 			rootColor.style.setProperty("--bg", colorConfig.bg);
 			rootColor.style.setProperty("--txt", colorConfig.txt);
-
-			isCrtEnabled = false;
-			toggleCrt();
 		}
 		stdin.focus();
 	}
