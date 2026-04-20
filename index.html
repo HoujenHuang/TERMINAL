@@ -1,11 +1,16 @@
 <!DOCTYPE html>
+<html>
 <head>
 	<meta charset="utf-8" name="referrer" content="strict-origin-when-cross-origin">
 	<title>ТЕРМИНАЛ</title>
 	<link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/7/7e/Digital_gerb_russia_max.svg" type="image/svg/">
-	<link id="theme1" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
 
+	<!-- External Styles -->
+	<link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet">
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+	<!-- Dependencies -->
 	<script src="https://www.youtube.com/iframe_api"></script>
 	<script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
@@ -91,117 +96,11 @@
 
 					<!-- Literally the only thing most people would come on The TERMINAL for -->
 
-					<div id="games" class="program">
-						<section class="flexbox">
-							<div class="normal">
-								<span><b><span class="user">guest</span>@games:~$</b> find&nbsp;</span>
-							</div>
-							<div class="stretch">
-								<input type="text" id="file-search" onkeyup="handleSearch()" autocomplete="off">
-							</div>
-						</section>
-
-						CAUTION: Some files may be corrupted.
-						<div id="sections-container"></div>
-					</div>
-
-					<!-- SPAAAAACE! -->
-
-					<div id="telescope" class="program invisible">
-						=====<br>
-						<b>ГЛАЗ-1</b><br><br>
-						Наш космос – это чудесное место.<br><br>
-						<button id="teleStatus" onclick="toggleBackground()">> STATUS: Activated</button><br>
-						<button onclick="setRandomBackground()">> Operate Orbital Telescope</button><br>
-					</div>
-
-					<!-- Super epic music -->
-
-					<div id="radio" class="program invisible">
-						=====<br>
-						<b>УВБ-76</b><br><br>
-						Вы слушаете радио «Советская волна». Рекомендуется использовать наушники.<br><br>
-						<div id="songTitle">ERROR: UVB-76 Radio Station not connected</div><br>
-						<button id="playBtn" onclick="togglePlayback()">> PAUSE</button><br>
-					</div>
-
-					<!-- YouTube player -->
-
-					<div id="youtube" class="program invisible">
-						=====<br>
-						<section class="search-box flexbox">
-							<div class="normal">
-								<span><b><span class="user">guest</span>@youtube:~$</b>&nbsp;</span>
-							</div><br><br>
-							<div class="stretch">
-								<input id="query" type="text" autocomplete="off">
-							</div>
-						</section>
-
-						<button id="youtubeSearch">Search</button>
-
-						<div id="videoDisplay" class="invisible">
-							<div id="mainVideoDisplay"></div>
-							<h2 id="playingTitle"></h2>
-						</div>
-
-						<div id="results" class="video-grid"></div>
-					</div>
-
-					<!-- Colors -->
-
-					<div id="color" class="program invisible">
-						<button id="crtToggle" onclick="toggleCrt()">CRT Effects</button><br><br>
-						Preset Themes<br><br>
-						<button id="bgGreen">P1 Green Phosphor</button>
-						<button id="bgAmber">P3 Amber Phosphor</button>
-						<button id="bgWhite">P4 White Phosphor</button><br><br>
-
-						Theme<br><br>
-						R <input type="number" id="r" value="51" min="0" max="255">
-						G <input type="number" id="g" value="255" min="0" max="255">
-						B <input type="number" id="b" value="51" min="0" max="255"><br><br>
-
-						Background<br><br>
-						R <input type="number" id="bg-r" value="0" min="0" max="255">
-						G <input type="number" id="bg-g" value="0" min="0" max="255">
-						B <input type="number" id="bg-b" value="0" min="0" max="255"><br><br>
-
-						Text<br><br>
-						R <input type="number" id="txt-r" value="51" min="0" max="255">
-						G <input type="number" id="txt-g" value="255" min="0" max="255">
-						B <input type="number" id="txt-b" value="51" min="0" max="255">
-					</div>
-
-					<!-- Editor's doc (for admins only) -->
-
-					<div id="login" class="program invisible">
-						<section class="flexbox">
-							<div class="normal">
-								Email:&nbsp;
-							</div>
-							<div class="stretch">
-								<input type="text" id="email">
-							</div>
-						</section>
-
-						<section class="flexbox">
-							<div class="normal">
-								Password:&nbsp;
-							</div>
-							<div class="stretch">
-								<input type="password" id="password">
-							</div>
-						</section>
-
-						<button onclick="login()">Login</button><br><br>
-
-						<b id="adminAlert" class="invisible">Wrong username/password</b>
-					</div>
+					<div id="program" class="program"></div>
 
 					<!-- Command input -->
 
-					<div id="commandInput" class="invisible">
+					<div id="commandInput">
 						<section class="flexbox">
 							<div class="normal">
 								<b><span class="user">guest</span>@terminal:~$</b>&nbsp;
@@ -216,6 +115,29 @@
 				<div id="admin" class="iframe-container program invisible">
 					<iframe id="adminFrame" style="height: 100%; border: none;"></iframe>
 				</div>
+			</div>
+
+			<div id="chernobyl" style="display:none;">
+				<div id="aim"></div>
+                <div class="grid">
+                	<div>
+						<canvas id="chCanvas" width="400" height="220"></canvas>
+						<div id="status2"></div>
+                    	<div id="DEBUG"></div>
+                	</div>
+                    <div id="chCommand" style="width:100%; height:100%; border:2px solid var(--theme);">
+                    	<div id="chStdout">In order to proceed, you must operate the Chernobyl Nuclear Power Plant.</div>
+
+						<section class="flexbox">
+							<div class="normal">
+								<b><span class="user">guest</span>@terminal:~$</b>&nbsp;
+							</div>
+							<div class="stretch">
+								<input id="chStdin" type="text" autocomplete="off">
+							</div>
+						</section>
+                    </div>
+                </div>
 			</div>
 
 			<!-- HTML editor -->
@@ -432,10 +354,10 @@
 				<b>ENDPOINT LAT/LON</b><span id="coords" style="float:right;">00.0000, 00.0000</span>
 				<button id="spinBtn">Spin</button>
 				<button id="homeBtn">Home</button>
-				<div id="chartdiv"></div>
+				<div id="chartdiv" style="height:100%"></div>
 			</div>
 
-			<div class="mini-info-container">
+			<div class="mini-info-container" style="background-color:black; z-index: 10;">
 				<div class="mini-info">
 					<b>HIGH:</b> <span id="high"></span><br>
 					<b>LOW:</b> <span id="low"></span>
@@ -488,5 +410,6 @@
 			<feBlend in="red-green" in2="blue-shift" mode="screen"/>
 		</filter>
 	</svg>
-</body>
 <script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/script.js"></script>
+</body>
+</html>
