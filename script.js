@@ -240,7 +240,7 @@ function displayResults(videos) {
 		card.onclick = () => {
 			const displayArea = document.getElementById("videoDisplay");
 			displayArea.style.display = "block";
-			document.getElementById("playingTitle").innerText = title;
+			document.getElementById("playingTitle").innerHTML = title;
 
 			if (searchPlayer && typeof searchPlayer.loadVideoById === "function") {
 				searchPlayer.loadVideoById(videoId);
@@ -547,7 +547,7 @@ let isTimeInit = false;
 
 function displayTime() {
 	if (!shouldRun()) {
-		document.getElementById("clock").innerText = "00:00:00";
+		document.getElementById("clock").innerHTML = "00:00:00";
 		return;
 	}
 
@@ -562,7 +562,7 @@ function displayTime() {
 
 	const timeString = hours + ":" + minutes + ":" + seconds;
 
-	document.getElementById("clock").innerText = timeString;
+	document.getElementById("clock").innerHTML = timeString;
 
 	if (!isTimeInit) {
 		load(`[ OK ] Atomic Clock synced: ${timeString}`);
@@ -722,7 +722,7 @@ let frames = 0,
 function checkFPS() {
 	if (!shouldRun()) {
 		requestAnimationFrame(checkFPS);
-		charts.fps.text.innerText = "Calculating...";
+		charts.fps.text.innerHTML = "Calculating...";
 		return;
 	}
 
@@ -731,7 +731,7 @@ function checkFPS() {
 
 	if (now >= lastTime + 1000) {
 		const fps = Math.round((frames * 1000) / (now - lastTime));
-		charts.fps.text.innerText = `${fps} FPS`;
+		charts.fps.text.innerHTML = `${fps} FPS`;
 		drawGraph("fps", fps);
 		frames = 0;
 		lastTime = now;
@@ -750,7 +750,7 @@ let isMemoryInit = false;
 
 async function checkMemory() {
 	if (!shouldRun()) {
-		charts.mem.text.innerText = "Calculating...";
+		charts.mem.text.innerHTML = "Calculating...";
 		return;
 	}
 
@@ -758,7 +758,7 @@ async function checkMemory() {
 		const used = performance.memory.usedJSHeapSize / 1e+6;
 		const limit = performance.memory.totalJSHeapSize / 1e+6;
 
-		charts.mem.text.innerText = `${used.toFixed(2)} / ${limit.toFixed(0)} MB`;
+		charts.mem.text.innerHTML = `${used.toFixed(2)} / ${limit.toFixed(0)} MB`;
 		charts.mem.max = limit;
 		drawGraph("mem", used);
 
@@ -770,7 +770,7 @@ async function checkMemory() {
 		if (!isMemoryInit) {
 			load("[ FAIL ] Memory " + e);
 			isMemoryInit = true;
-			charts.memory.text.innerText = "ERROR";
+			charts.memory.text.innerHTML = "ERROR";
 		}
 	}
 }
@@ -781,7 +781,7 @@ let isSpeedInit = false;
 
 async function checkSpeed() {
 	if (!shouldRun()) {
-		charts.speed.text.innerText = "Calculating...";
+		charts.speed.text.innerHTML = "Calculating...";
 		return;
 	}
 
@@ -803,7 +803,7 @@ async function checkSpeed() {
 		const speedMbps = (bitsLoaded / (1024 * 1024)) / durationInSeconds;
 
 		if (speedMbps > charts.speed.max) charts.speed.max = speedMbps * 1.2;
-		charts.speed.text.innerText = `${speedMbps.toFixed(2)} Mbps`;
+		charts.speed.text.innerHTML = `${speedMbps.toFixed(2)} Mbps`;
 		drawGraph("speed", speedMbps);
 
 		if (!isSpeedInit) {
@@ -814,7 +814,7 @@ async function checkSpeed() {
 		if (!isSpeedInit) {
 			load("[ FAIL ] Speed " + e);
 			isSpeedInit = true;
-			charts.speed.text.innerText = "ERROR";
+			charts.speed.text.innerHTML = "ERROR";
 		}
 	}
 }
