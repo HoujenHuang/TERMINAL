@@ -360,7 +360,8 @@ function handleSearch() {
 	generateAllSections(query);
 }
 
-const blacklistArr = ["clclassof09", "cldokidokiliteratureclub", "clskibididibidygyattohiorizzingallovertheplacestillwatermangotheoryfemboydrool", "clskibidiinthebackrooms", "clyanderesimulator", "clyouvs100skibidi", "clyouvs100skibidi(1)"];
+const blacklistArr = ["clclassof09", "cldokidokiliteratureclub", "clskibididibidygyattohiorizzingallovertheplacestillwatermangotheoryfemboydrool", "clskibidiinthebackrooms", "clyanderesimulator", "clyouvs100skibidi", "clyouvs100skibidi(1)", "cltralalerotralalaescapetungtungtungsahur", "cltungtunghorror",
+"cltungtungtungsahurobby", "clgachaverse"];
 
 function handleBlacklistedFile() {
 	initReactor();
