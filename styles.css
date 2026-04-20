@@ -194,6 +194,17 @@ input[type="button"]:hover, button:hover {
 	box-shadow: 0 0 5px var(--theme);
 }
 
+/* Chernobyl simulator */
+
+.grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+}
+
+table {
+	border: 1px solid lime;
+}
+
 /* Scrollbar */
 
 ::-webkit-scrollbar {
