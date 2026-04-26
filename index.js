@@ -1,18 +1,16 @@
-const express = require('express');
-const path = require('path');
+const express = require("express");
+const cors = require("cors");
 const app = express();
 
-app.set('trust proxy', true);
+app.set("trust proxy", true);
 
-app.get('/', (req, res) => {
-	res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(cors()); 
 
-app.get('/api/get-ip', (req, res) => {
+app.get("/api/get-ip", (req, res) => {
 	res.json({ ip: req.ip });
 });
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
-	console.log(`Server listening on port ${port}`);
+	console.log(`[ OK ] Server listening on http://localhost:${port}`);
 });
