@@ -1,11 +1,11 @@
 {
 	"name": "terminal",
 	"version": "1.0.0",
-	"main": "index.js",
+	"main": "index.ts",
 	"dependencies": {
 		"express": "^4.18.2"
 	},
 	"scripts": {
-		"start": "node index.js"
+		"start": "node index.ts"
 	}
 }
