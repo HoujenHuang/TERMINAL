@@ -7,6 +7,7 @@ app.set("trust proxy", true);
 app.use(cors()); 
 
 app.get("/api/get-ip", (req, res) => {
+	res.send("Hello World!");
 	res.json({ ip: req.ip });
 });
 
