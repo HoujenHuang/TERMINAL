@@ -8,23 +8,30 @@ app.use(cors());
 
 async function getStats() {
 	try {
-		const cpu = await si.cpu();
-		const temp = await si.cpuTemperature();
-		const load = await si.currentLoad();
-		const mem = await si.mem();
-		const speed = await si.cpuCurrentSpeed();
+		const [cpu, temp, load, mem, speed] = await Promise.all([
+			si.cpu(),
+			si.cpuTemperature(),
+			si.currentLoad(),
+			si.mem(),
+			si.cpuCurrentSpeed()
+		]);
+
+		const formatNum = (value, decimals = 2) => {
+			const num = parseFloat(value);
+			return isNaN(num) ? "0.00" : num.toFixed(decimals);
+		};
 
 		return {
-			cpuName: `${cpu.manufacturer} ${cpu.brand}`,
-			cpuUser: load.currentLoadUser.toFixed(2),
-			cpuSystem: load.currentLoadSystem.toFixed(2),
-			cpuTemp: temp.main || "N/A",
-			cpuSpeed: speed.avg,
-			memUsed: (mem.active / 1024 / 1024 / 1024).toFixed(2),
-			memTotal: (mem.total / 1024 / 1024 / 1024).toFixed(2)
+			cpuName: `${cpu.manufacturer || ''} ${cpu.brand || 'Generic CPU'}`.trim(),
+			cpuUser: formatNum(load.currentLoadUser),
+			cpuSystem: formatNum(load.currentLoadSystem),
+			cpuTemp: temp.main ? temp.main.toString() : "N/A",
+			cpuSpeed: speed.avg && speed.avg > 0 ? speed.avg : "N/A",
+			memUsed: formatNum(mem.used / 1024 / 1024 / 1024),
+			memTotal: formatNum(mem.total / 1024 / 1024 / 1024)
 		};
 	} catch (e) {
-		console.error("ERROR: ", e);
+		console.error("ERROR fetching system stats: ", e);
 		return null;
 	}
 }
@@ -33,34 +40,39 @@ app.get("/", async (req, res) => {
 	const ip = req.ip;
 	const stats = await getStats();
 
+	if (!stats) {
+		return res.status(500).send("Error fetching system stats");
+	}
+
 	res.send(`
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<meta charset="UTF-8">
-			<title>Not The TERMINAL</title>
-			<style>
-				body {
-					background: black;
-					color: lime;
-					font-family: "Courier New";
-				}
-			</style>
-		</head>
-		<body>
-			<h1>SYSTEM INFORMATION</h1>
-			<p>IP: ${ip}</p>
-			<h1>CPU</h1>
-			<p>NAME: ${stats.cpuName}</p>
-			<p>USER: ${stats.cpuUser}%</p>
-			<p>SYSTEM: ${stats.cpuSystem}%</p>
-			<p>TEMPERATURE: ${stats.cpuTemp}°C</p>
-			<p>CURRENT SPEED: ${stats.cpuSpeed} GHz</p>
-			<h1>MEMORY</h1>
-			<p>${stats.memUsed} GB OUT OF ${stats.memTotal} GB AVAILABLE</p>
-		</body>
-		</html>
-	`);
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>System Monitor</title>
+            <style>
+                body { background: #000; color: #0f0; font-family: "Courier New", monospace; padding: 20px; }
+                h1 { border-bottom: 1px solid #0f0; padding-bottom: 10px; }
+                .stat { margin: 10px 0; }
+                .label { font-weight: bold; color: #8af; }
+            </style>
+        </head>
+        <body>
+            <h1>SYSTEM INFORMATION</h1>
+            <div class="stat"><span class="label">IP:</span> ${ip}</div>
+            
+            <h1>CPU</h1>
+            <div class="stat"><span class="label">NAME:</span> ${stats.cpuName}</div>
+            <div class="stat"><span class="label">USER:</span> ${stats.cpuUser}%</div>
+            <div class="stat"><span class="label">SYSTEM:</span> ${stats.cpuSystem}%</div>
+            <div class="stat"><span class="label">TEMPERATURE:</span> ${stats.cpuTemp}${stats.cpuTemp !== "N/A" ? "°C" : ""}</div>
+            <div class="stat"><span class="label">CURRENT SPEED:</span> ${stats.cpuSpeed} ${stats.cpuSpeed !== "N/A" ? "GHz" : ""}</div>
+            
+            <h1>MEMORY</h1>
+            <div class="stat">${stats.memUsed} GB / ${stats.memTotal} GB</div>
+        </body>
+        </html>
+    `);
 });
 
 app.get("/api/stats", async (req, res) => {
@@ -74,5 +86,5 @@ app.get("/api/stats", async (req, res) => {
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
-	console.log(`[ OK ] Server listening on http://localhost:${port}`);
+	console.log(`[ OK ] Server listening on port ${port}`);
 });
