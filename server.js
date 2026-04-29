@@ -45,34 +45,35 @@ app.get("/", async (req, res) => {
 	}
 
 	res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>System Monitor</title>
-            <style>
-                body { background: #000; color: #0f0; font-family: "Courier New", monospace; padding: 20px; }
-                h1 { border-bottom: 1px solid #0f0; padding-bottom: 10px; }
-                .stat { margin: 10px 0; }
-                .label { font-weight: bold; color: #8af; }
-            </style>
-        </head>
-        <body>
-            <h1>SYSTEM INFORMATION</h1>
-            <div class="stat"><span class="label">IP:</span> ${ip}</div>
-            
-            <h1>CPU</h1>
-            <div class="stat"><span class="label">NAME:</span> ${stats.cpuName}</div>
-            <div class="stat"><span class="label">USER:</span> ${stats.cpuUser}%</div>
-            <div class="stat"><span class="label">SYSTEM:</span> ${stats.cpuSystem}%</div>
-            <div class="stat"><span class="label">TEMPERATURE:</span> ${stats.cpuTemp}${stats.cpuTemp !== "N/A" ? "°C" : ""}</div>
-            <div class="stat"><span class="label">CURRENT SPEED:</span> ${stats.cpuSpeed} ${stats.cpuSpeed !== "N/A" ? "GHz" : ""}</div>
-            
-            <h1>MEMORY</h1>
-            <div class="stat">${stats.memUsed} GB / ${stats.memTotal} GB</div>
-        </body>
-        </html>
-    `);
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="UTF-8">
+			<title>TERMINAL Backend</title>
+			<style>
+				body {
+					background: black;
+					color: lime;
+					font-family: "Courier New";
+				}
+			</style>
+		</head>
+		<body>
+		<b>> SYSTEM INFORMATION</b>
+		<p><b>IP:</b> ${ip}</p>
+
+		<b>> CPU</b>
+		<p><b>NAME:</b> ${stats.cpuName}</p>
+		<p><b>USER:</b> ${stats.cpuUser}%</p>
+		<p><b>SYSTEM:</b> ${stats.cpuSystem}%</p>
+		<p><b>TEMPERATURE:</b> ${stats.cpuTemp}°C</p>
+		<p><b>CURRENT SPEED:</b> ${stats.cpuSpeed} GHz</p>
+
+		<b>> MEMORY</b>
+		<p><b>MEMORY USED:</b> ${stats.memUsed} GB OUT OF ${stats.memTotal} GB</p>
+		</body>
+		</html>
+	`);
 });
 
 app.get("/api/stats", async (req, res) => {
