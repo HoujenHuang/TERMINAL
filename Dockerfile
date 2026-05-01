@@ -1,11 +1,6 @@
-FROM node:18-slim
-RUN apt-get update && apt-get install -y \
-    procps \
-    lm-sensors \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install --only=production
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-EXPOSE 8080
-CMD [ "npm", "start" ]
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
