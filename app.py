@@ -1,10 +1,16 @@
 import os
 import psutil
+from flask import send_from_directory
 from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route('/favicon.ico')
+def favicon():
+	return send_from_directory(os.path.join(app.root_path, 'static'),
+								'favicon.svg', mimetype='image/svg+xml')
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
