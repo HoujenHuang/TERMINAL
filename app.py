@@ -34,8 +34,7 @@ def home():
 		"port": port,
 		**stats
 	}
-    
-return jsonify(response)
+	return jsonify(response)
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
