@@ -7,10 +7,17 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+PORT = int(os.environ.get("PORT", 8080))
+
 @app.route('/favicon.ico')
 def favicon():
 	return send_from_directory(os.path.join(app.root_path, 'static'),
 								'favicon.svg', mimetype='image/svg+xml')
+
+@app.route('/')
+def home():
+	port = request.environ.get('SERVER_PORT', PORT)
+	return f"[ OK ] Listening on {port}"
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
@@ -25,5 +32,4 @@ def get_stats():
 	})
 
 if __name__ == "__main__":
-	port = int(os.environ.get("PORT", 8080))
-	app.run(host='0.0.0.0', port=port)
+	app.run(host='0.0.0.0', port=PORT)
