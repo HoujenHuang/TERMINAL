@@ -1,8 +1,27 @@
 FROM python:3.11-slim
-ENV PYTHONUNBUFFERED True
-ENV APP_HOME /app
-WORKDIR $APP_HOME
+RUN apt-get update && apt-get install -y nginx && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
 COPY . ./
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-CMD ["python3", "-m", "gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]
+RUN pip install -r requirements.txt
+
+RUN echo 'server { \
+    listen 8080; \
+    location /wisp/ { \
+        proxy_pass http://127.0.0.1:8081; \
+        proxy_http_version 1.1; \
+        proxy_set_header Upgrade $http_upgrade; \
+        proxy_set_header Connection "Upgrade"; \
+    } \
+    location / { \
+        proxy_pass http://127.0.0.1:5000; \
+    } \
+}' > /etc/nginx/sites-available/default
+
+RUN echo '#!/bin/bash \n \
+python3 -m wisp.server --port 8081 & \n \
+gunicorn --bind 127.0.0.1:5000 app:app & \n \
+nginx -g "daemon off;"' > start.sh
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
