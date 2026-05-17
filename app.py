@@ -16,20 +16,16 @@ def get_system_info():
 		"memory_usage_percent": memory.percent,
 		"memory_used_gb": round(memory.used / (1024**3), 2),
 		"status": "online",
+		"engine": "Puter.js + Wisp",
 		"proxy_active": True
 	}
-
-@app.route('/favicon.ico')
-def favicon():
-	return send_from_directory(os.path.join(app.root_path, 'static'),
-								'favicon.svg', mimetype='image/svg+xml')
 
 @app.route('/')
 def home():
 	stats = get_system_info()
 	return jsonify({
-		"message": f"TERMINAL Backend is active. Listening on http://localhost:{LOCALHOST}",
-		"port": LOCALHOST,
+		"message": "TERMINAL Backend is active",
+		"wisp_endpoint": "/wisp/",
 		**stats
 	})
 
@@ -39,3 +35,8 @@ def get_stats():
 
 if __name__ == "__main__":
 	app.run(host='0.0.0.0', port=LOCALHOST)
+
+@app.route('/favicon.ico')
+def favicon():
+	return send_from_directory(os.path.join(app.root_path, 'static'),
+								'favicon.svg', mimetype='image/svg+xml')
