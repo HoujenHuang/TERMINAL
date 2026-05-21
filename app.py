@@ -1,40 +1,24 @@
 import os
-import psutil
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-LOCALHOST = 5000
+latest_metrics = {"cpu_usage": 0}
 
-def get_system_info():
-	cpu_usage = psutil.cpu_percent(interval=0.1)
-	memory = psutil.virtual_memory()
-	return {
-		"cpu_usage_percent": cpu_usage,
-		"memory_usage_percent": memory.percent,
-		"memory_used_gb": round(memory.used / (1024**3), 2),
-		"status": "online",
-		"engine": "Puter.js + Wisp",
-		"proxy_active": True
-	}
+@app.route('/report', methods=['POST'])
+def report():
+	data = request.json
+	latest_metrics['cpu_usage'] = data.get('cpu_usage', 0)
+	return jsonify({"status": "success"}), 200
 
-@app.route('/')
-def home():
-	stats = get_system_info()
-	return jsonify({
-		"message": "TERMINAL Backend is active",
-		"wisp_endpoint": "/wisp/",
-		**stats
-	})
-
-@app.route('/stats', methods=['GET'])
-def get_stats():
-	return jsonify(get_system_info())
+@app.route('/metrics', methods=['GET'])
+def get_metrics():
+	return jsonify(latest_metrics), 200
 
 if __name__ == "__main__":
-	app.run(host='0.0.0.0', port=LOCALHOST)
+	app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 @app.route('/favicon.ico')
 def favicon():
