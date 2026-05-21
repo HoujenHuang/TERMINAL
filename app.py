@@ -7,6 +7,10 @@ CORS(app)
 
 latest_metrics = {"cpu_usage": 0}
 
+@app.route('/')
+def index():
+	return jsonify({"message": "TERMINAL Backend is running"}), 200
+
 @app.route('/report', methods=['POST'])
 def report():
 	data = request.json
