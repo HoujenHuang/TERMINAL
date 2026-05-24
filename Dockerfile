@@ -1,7 +1,7 @@
-FROM node:18-slim
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED True
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-EXPOSE 8080
-CMD ["node", "index.js"]
+CMD ["gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "--timeout", "0", "main:app"]
