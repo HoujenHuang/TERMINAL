@@ -108,13 +108,13 @@ function displayDate() {
 	const d = new Date();
 
 	let year = d.getFullYear();
-	document.getElementById("year").innerHTML = year;
+	document.getElementById("year").textContent = year;
 
 	let month = months[d.getMonth()];
-	document.getElementById("month").innerHTML = month;
+	document.getElementById("month").textContent = month;
 
 	let day = d.getDate();
-	document.getElementById("day").innerHTML = day;
+	document.getElementById("day").textContent = day;
 
 	load(`[ OK ] Terran Orbital Revolution synced: ${day} ${month} ${year}`);
 }
@@ -161,25 +161,25 @@ function checkBrowser() {
 	const userAgent = navigator.userAgent;
 
 	if (userAgent.includes("Chrome") && !userAgent.includes("Edg")) {
-		browser.innerHTML = "CHROME";
+		browser.textContent = "CHROME";
 		load(`[ OK ] Operating System fetched: ${userAgent}`);
 	} else if (userAgent.includes("Firefox")) {
-		browser.innerHTML = "FIREFOX ⚠";
+		browser.textContent = "FIREFOX ⚠";
 		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
 	} else if (userAgent.includes("Safari") && !userAgent.includes("Chrome")) {
-		browser.innerHTML = "SAFARI ⚠";
+		browser.textContent = "SAFARI ⚠";
 		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
 	} else if (userAgent.includes("Edg")) {
-		browser.innerHTML = "EDGE";
+		browser.textContent = "EDGE";
 		load(`[ OK ] Operating System fetched: ${userAgent}`);
 	} else if (userAgent.includes("Opera") || userAgent.includes("OPR")) {
-		browser.innerHTML = "OPERA";
+		browser.textContent = "OPERA";
 		load(`[ OK ] Operating System fetched: ${userAgent}`);
 	} else if (userAgent.includes("MSIE") || userAgent.includes("Trident")) {
-		browser.innerHTML = "IE ⚠";
+		browser.textContent = "IE ⚠";
 		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
 	} else {
-		browser.innerHTML = "UNKNOWN ⚠";
+		browser.textContent = "UNKNOWN ⚠";
 		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
 	}
 }
@@ -387,7 +387,7 @@ const batteryDiv = document.getElementById("battery");
 
 function checkBattery() {
 	if (!shouldRun()) {
-		batteryDiv.innerHTML = "Calculating...";
+		batteryDiv.textContent = "Calculating...";
 		return;
 	}
 
@@ -417,8 +417,8 @@ function checkBattery() {
 				} else {
 					timeInfo = `${formatted} left`;
 				}
-				batteryDiv.innerHTML = `${level} - ${timeInfo}`;
-				document.getElementById("batteryTitle").innerHTML = `BATTERY ${isCharging}`;
+				batteryDiv.textContent = `${level} - ${timeInfo}`;
+				document.getElementById("batteryTitle").textContent = `BATTERY ${isCharging}`;
 			}
 			updateAllStatus();
 
@@ -428,11 +428,11 @@ function checkBattery() {
 		});
 	} catch (e) {
 		load("[ FAIL ] Battery " + e);
-		batteryDiv.innerHTML = "ERROR";
+		batteryDiv.textContent = "ERROR";
 	}
 }
 
-// Colors
+// Themes
 
 const rInput = document.getElementById("r");
 const gInput = document.getElementById("g");
@@ -478,17 +478,24 @@ function updateColor() {
 	const colorString = `rgb(${r}, ${g}, ${b})`;
 	rootColor.style.setProperty("--theme", colorString);
 
-	const bgr = bgR.value || 255;
-	const bgg = bgG.value || 255;
-	const bgb = bgB.value || 255;
+	const bgr = bgR.value || 0;
+	const bgg = bgG.value || 0;
+	const bgb = bgB.value || 0;
 	const bgString = `rgb(${bgr}, ${bgg}, ${bgb})`;
 	rootColor.style.setProperty("--bg", bgString);
+	document.body.style.backgroundColor = bgString;
 
 	const tr = txtR.value || 0;
 	const tg = txtG.value || 0;
 	const tb = txtB.value || 0;
 	const textColor = `rgb(${tr}, ${tg}, ${tb})`;
 	rootColor.style.setProperty("--txt", textColor);
+
+	const terminal = document.getElementById("terminalContent");
+	const stdin = document.getElementById("stdin");
+
+	if (terminal) terminal.style.color = textColor;
+	if (stdin) stdin.style.color = textColor;
 
 	colorConfig = {
 		theme: colorString,
@@ -529,45 +536,103 @@ function loadColors() {
 	input.addEventListener("input", updateColor);
 });
 
-document.getElementById("bgGreen").addEventListener("click", () => {
+document.getElementById("bgGreen").onclick = () => {
 	setFullPreset([51, 255, 51], [0, 0, 0], [51, 255, 51]);
-});
+	setTimeout(updateColor, 10);
+};
 
-document.getElementById("bgAmber").addEventListener("click", () => {
+document.getElementById("bgAmber").onclick = () => {
 	setFullPreset([255, 176, 0], [0, 0, 0], [255, 176, 0]);
-});
+	setTimeout(updateColor, 10);
+};
 
-document.getElementById("bgWhite").addEventListener("click", () => {
+document.getElementById("bgWhite").onclick = () => {
 	setFullPreset([240, 255, 255], [0, 0, 0], [240, 255, 255]);
-});
+	setTimeout(updateColor, 10);
+};
 
 loadColors();
+
+// Themes
+
+const IMPERIAL_URI = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25' viewBox='0 0 288 103' preserveAspectRatio='xMidYMid meet'%3E%3Cg transform='translate(38.75693,-216.41937)'%3E%3Cpath pathLength='1' fill='%230F0' d='m -35.934708,216.41937 8.880078,10.12341 86.028339,-3.58479 c 0,0 -2.087983,2.37169 -2.816365,4.55683 l -74.891034,7.22074 7.211962,7.46776 66.313263,-10.96677 c 0,0 -0.725019,1.85443 -0.725019,3.88349 l -56.8828333,14.46577 7.1685546,6.48644 49.5003367,-18.572 c 0,0 0.0067,3.00013 0.6165,4.27623 l -42.051696,21.08035 6.444051,4.69429 36.399845,-22.83012 c 0,0 1.06979,2.69192 1.962671,3.58481 l -28.206547,26.54255 5.675623,3.96824 24.74991,-28.24945 c 0.382665,0.89289 3.286104,2.60347 3.286104,2.60347 L 45.616902,282.1027 c 3.146348,2.12593 7.126697,0.89607 7.126697,0.89607 l 12.545486,-28.93208 c 2.423541,1.02044 4.096909,0.81078 4.096909,0.81078 l -8.662522,25.85943 c 4.081751,-0.6803 6.059062,-3.20032 6.059062,-3.20032 l 5.248775,-22.61672 c 1.913321,0.21259 3.840594,-0.17052 3.840594,-0.17052 -0.127561,2.76368 -2.986898,18.43452 -2.986898,18.43452 0,0 6.406468,-8.02391 7.894609,-8.44909 0,0 -2.30486,-8.37118 -2.43241,-10.32701 0,0 2.095685,-0.13142 3.413744,-1.15189 0,0 1.792404,5.55384 1.877404,7.33962 1.913321,-1.70074 3.115056,-4.26744 3.115056,-4.26744 0,0 -1.154594,-0.99568 -1.877404,-4.86481 0,-3e-5 4.315701,-1.61023 5.051372,0.0915 0.735658,1.70166 0.04766,7.04865 -4.119129,11.6406 0,0 -4.394112,6.87547 -8.050672,9.04391 1.78576,-0.12755 8.421396,2.37675 9.739458,5.6932 l 10.507368,-26.26921 -7.668265,-8.81651 c -12.712941,7.73831 -28.201831,6.05992 -30.229164,-0.11369 -2.02733,-6.17361 -0.422193,-16.12024 5.168162,-20.50469 1.812808,-1.42176 5.625761,-3.00274 5.93607,-5.80895 l -107.145912,0 z m 174.855478,0 c 0.31031,2.80621 4.12326,4.38719 5.93607,5.80895 5.59035,4.38445 7.19549,14.33108 5.16816,20.50469 -2.02733,6.17361 -17.51622,7.852 -30.22916,0.11369 l -7.66827,8.81651 10.50737,26.26921 c 1.31806,-3.31645 7.95369,-5.82075 9.73945,-5.6932 -3.65656,-2.16844 -8.05118,-9.04391 -8.05118,-9.04391 -4.16679,-4.59195 -4.85428,-9.93894 -4.11861,-11.6406 0.73566,-1.7017 5.05137,-0.0915 5.05137,-0.0915 -0.72281,3.86913 -1.87792,4.86481 -1.87792,4.86481 0,0 1.20225,2.5667 3.11557,4.26744 0.085,-1.78578 1.8774,-7.33962 1.8774,-7.33962 1.31806,1.02047 3.41375,1.15189 3.41375,1.15189 -0.12755,1.95583 -2.43241,10.32701 -2.43241,10.32701 1.48814,0.42518 7.89461,8.44909 7.89461,8.44909 0,0 -2.85934,-15.67084 -2.9869,-18.43452 0,0 1.92675,0.38311 3.84007,0.17052 l 5.24878,22.61672 c 0,0 1.97783,2.52002 6.05958,3.20032 l -8.66252,-25.85943 c 0,0 1.67337,0.20966 4.0969,-0.81078 l 12.54549,28.93208 c 0,0 3.98035,1.22986 7.1267,-0.89607 l -17.11214,-28.93208 c 0,0 2.90344,-1.71058 3.28611,-2.60347 l 24.74991,28.24945 5.67562,-3.96824 -28.20655,-26.54255 c 0.8929,-0.89289 1.96268,-3.58481 1.96268,-3.58481 l 36.39984,22.83012 6.44354,-4.69429 -42.05118,-21.08035 c 0.60979,-1.2761 0.6165,-4.27623 0.6165,-4.27623 l 49.49982,18.572 7.16907,-6.48644 -56.88283,-14.46577 c 0,-2.02906 -0.72503,-3.88349 -0.72503,-3.88349 l 66.31327,10.96677 7.21145,-7.46776 -74.89052,-7.22074 c -0.72838,-2.18514 -2.81637,-4.55683 -2.81637,-4.55683 l 86.02834,3.58479 8.88008,-10.12341 -107.14591,0 z m -19.75849,7.5246 -0.87075,1.35186 -9.109,0.21704 11.35228,3.9517 0.79065,5.89163 c 5.4606,-3.0177 2.80206,-4.88585 9.69966,-7.32875 l 0.40205,-2.36523 -3.60805,-0.23255 -0.81907,-0.62632 -7.83777,-0.85938 z m -40.989227,1.13792 0.933793,2.94556 c 6.897611,2.4429 4.239067,4.31105 9.699668,7.32875 l 0.790649,-5.89163 11.352277,-3.9517 -22.776387,-0.43098 z m 7.831563,1.00562 a 2.0836513,2.0836513 0 0 1 2.083594,2.0836 2.0836513,2.0836513 0 0 1 -2.083594,2.08411 2.0836513,2.0836513 0 0 1 -2.083594,-2.08411 2.0836513,2.0836513 0 0 1 2.083594,-2.0836 z m -6.979417,3.53932 c -1.681703,0.0345 -4.30289,0.69358 -6.097302,1.34669 0.19521,2.09548 1.381993,3.46651 1.939933,5.24516 0.199948,0.63741 0.379352,2.39744 0.580842,3.20807 0.201491,0.81063 0.999422,0.52814 0.999422,0.52814 0,0 -0.287237,-2.15585 1.29346,-4.3832 0,0 5.748271,-0.64616 6.538619,-1.79576 -1.939949,-1.22145 -2.446242,-3.15966 -3.952214,-3.95221 -0.286303,-0.15067 -0.742196,-0.20838 -1.30276,-0.19689 z m 52.081571,0 c -0.56056,-0.0115 -1.01697,0.0462 -1.30328,0.19689 -1.50597,0.79255 -2.01174,2.73076 -3.95169,3.95221 0.79035,1.1496 6.53862,1.79576 6.53862,1.79576 1.5807,2.22735 1.29294,4.3832 1.29294,4.3832 0,0 0.79845,0.28249 0.99994,-0.52814 0.20149,-0.81063 0.38089,-2.57066 0.58084,-3.20807 0.55794,-1.77865 1.74473,-3.14968 1.93994,-5.24516 -1.79442,-0.65311 -4.41561,-1.31221 -6.09731,-1.34669 z m -35.251076,0.12971 -3.728453,1.02268 -1.623674,6.37429 8.779825,9.32088 4.449858,-11.06496 -7.877556,-5.65289 z m 18.420586,0 -7.87756,5.65289 4.44986,11.06496 8.77982,-9.32088 -1.62367,-6.37429 -3.72845,-1.02268 z m -9.2103,6.1991 -16.05121,47.99759 7.128245,4.63383 -7.020758,12.33154 3.114021,2.89907 6.335014,-13.95887 1.297078,0.92501 -6.021337,14.64459 3.972882,3.54345 4.294835,-16.8584 c 0.98381,-0.46297 1.28055,0.008 1.39629,0.64442 l -3.22151,18.57613 4.77645,4.93922 4.77646,-4.93922 -3.22151,-18.57613 c 0.11574,-0.63627 0.41248,-1.10739 1.3963,-0.64442 l 4.29482,16.8584 3.97289,-3.54345 -6.02134,-14.64459 1.29708,-0.92501 6.33501,13.95887 3.11403,-2.89907 -7.02077,-12.33154 7.12773,-4.63383 -16.0507,-47.99759 z m 15.20786,50.53129 -4.55269,2.62567 7.82071,10.20093 c 0,0 -0.909,1.07802 -0.86403,1.7172 0.0357,0.50797 0.87126,1.25524 0.87126,1.25524 l -4.08812,4.71701 c 0,0 -2.41939,-0.12083 -3.39307,0.43254 1.01011,0.702 1.42208,0.67871 1.76061,1.30742 0.0484,1.11231 -0.14521,2.31664 -0.14521,2.31664 1.08986,-0.40312 2.13612,-0.81 3.31763,-1.11258 1.88611,0.3869 8.82944,3.99098 8.82944,3.99098 0,0 -5.32048,-6.37823 -5.6963,-7.18355 0.16107,-0.64426 2.04846,-2.70734 2.04846,-2.70734 0.48319,-0.59055 0.87216,-0.64265 1.24798,0.0553 0,0 0.91694,1.21042 1.38441,2.78175 0.0717,0.24093 -1.00169,1.74895 -0.86713,1.98025 0.30491,0.52406 1.68274,-0.12136 2.0743,0.37465 1.89767,2.40382 2.88792,5.81234 2.97036,6.19704 -0.64426,1.2885 -3.17811,4.2199 -3.17811,4.2199 0,0 3.44657,-1.26662 5.18108,-1.75546 0.76104,-0.21447 1.45986,1.96165 1.45986,1.96165 0.32213,-0.42953 0.3219,-5.95125 0.2682,-7.1324 -0.46825,-0.9625 -1.99756,-3.19122 -3.59926,-5.38314 -0.27253,-0.37293 0.61397,-1.80858 0.34572,-2.16937 -0.40199,-0.54062 -1.46534,0.0933 -1.95079,-0.24545 -1.21611,-0.84876 -1.86552,-2.18797 -1.86552,-2.18797 -0.26845,-0.64426 0.0631,-1.03209 0.65371,-1.13948 0,0 1.81971,-0.38479 3.02875,-0.33642 3.2213,4.99303 3.85507,9.69089 3.85507,9.69089 0,0 0.6687,-8.21526 0.0884,-11.31043 0,0 2.46218,-1.75668 2.31304,-2.20917 -0.11909,-0.36131 -2.5709,0.0579 -2.5709,0.0579 l -0.45114,-1.68518 c -0.13821,-0.581 -0.61514,-0.62955 -0.85007,0.0465 l -0.5948,1.95543 -6.13244,1.19891 c -0.38449,0.12816 -0.0414,-1.09736 -0.64492,-1.63555 -0.4078,-0.36364 -1.90089,0.0294 -1.98748,-0.18709 l -6.08697,-10.70321 z m -30.560922,0.0966 -7.102409,12.34705 c -0.214751,0.53684 -0.682276,0.53824 -1.326533,0.32351 l -8.858893,-1.71773 0.322461,12.93876 c 0,0 0.536612,-4.45606 3.757911,-9.44904 l 3.319177,0.57825 c 0.59059,0.10736 0.922158,0.49522 0.653706,1.13948 0,0 -6.925633,7.99949 -7.892023,9.98593 -0.05369,1.18115 0.429762,4.1878 0.751893,4.61729 0,0 1.279154,0 2.040183,0.21498 1.734521,0.48884 4.939234,2.09394 4.939234,2.09394 0,0 -3.114167,-3.2213 -3.758428,-4.5098 0.161071,-0.75163 5.852356,-11.38227 5.852356,-11.38227 0.375822,-0.69794 1.054703,-0.30736 1.537891,0.28319 0,0 1.79075,1.91836 1.95182,2.56264 -0.375819,0.80532 -5.744868,7.08639 -5.744868,7.08639 l 11.489221,-5.58313 -5.691126,-6.54997 c -0.69795,-0.75166 -0.680488,-0.80452 -0.08992,-1.71723 l 8.3044,-10.68512 -4.456057,-2.57712 z' /%3E%3C/g%3E%3C/svg%3E\")";
+
+function setThemeSoviet() {
+	document.getElementById("container").style.setProperty("--bg-image", "");
+	setCookie("appliedTheme", "sovietwave", 30);
+	load("[ OK ] Theme set to Sovietwave");
+}
+
+function setThemeImperial() {
+	document.getElementById("container").style.setProperty("--bg-image", IMPERIAL_URI);
+	setCookie("appliedTheme", "imperial", 30);
+	load("[ OK ] Theme set to Imperial");
+}
+
+function loadAppliedTheme() {
+	const savedTheme = getCookie("appliedTheme");
+	const container = document.getElementById("container");
+	if (savedTheme === "imperial") {
+		setThemeImperial();
+	}
+}
+
+loadAppliedTheme();
+
+// Fonts
+
+const fontSelect = document.getElementById("fontSelect");
+
+function setGlobalFont(fontFamily) {
+	document.body.style.fontFamily = fontFamily;
+
+	let fontStyle = document.getElementById("dynamicFontFace");
+	if (!fontStyle) {
+		fontStyle = document.createElement("style");
+		fontStyle.id = "dynamicFontFace";
+		document.head.appendChild(fontStyle);
+	}
+
+	fontStyle.textContent = `
+		body, input, button, textarea, .terminal, .mini-info, b, span, 
+		#codebox, #codeBlock, #lineNumbers, #preCode code { 
+			font-family: "${fontFamily}", monospace !important; 
+		}
+	`;
+
+	setCookie("selectedFont", fontFamily, 30);
+}
+
+fontSelect.addEventListener("change", (e) => {
+	setGlobalFont(e.target.value);
+	load(`[ OK ] Font set to ${e.target.value}`);
+});
+
+function loadSavedFont() {
+	const savedFont = getCookie("selectedFont");
+	if (savedFont) {
+		setGlobalFont(savedFont);
+		fontSelect.value = savedFont;
+	}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+	loadSavedFont();
+});
 
 // Admin
 
 var admin = false;
 
-const admins = {
-	"houjen@terminal": {
-		password: "а ну чики брики и в дамки"
-	},
-	"dylan@terminal": {
-		password: "BorschtTheBear"
-	},
-	"rithvik@terminal": {
-		password: "రిత్విక్_గుమ్మ"
-	}
-};
-
 function login() {
 	const email = document.getElementById("email").value;
 	const password = document.getElementById("password").value;
 
-	if (admins[email] && admins[email].password === password) {
+	if (CONFIG.ADMINS[email] && CONFIG.ADMINS[email].password === password) {
 		document.getElementById("login").style.display = "none";
 		document.getElementById("admin").style.display = "block";
 		document.getElementById("commandInput").style.display = "block";
-		document.querySelectorAll(".user").innerHTML = email;
+		document.querySelectorAll(".user").textContent = email;
 		closeSide();
 		document.getElementById("adminFrame").src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
 
@@ -583,16 +648,16 @@ const connection = navigator.connection || navigator.mozConnection || navigator.
 
 function checkConnection() {
 	if (!shouldRun()) {
-		document.getElementById("status").innerHTML = "Calculating...";
+		document.getElementById("status").textContent = "Calculating...";
 		return;
 	}
 
 	try {
-		document.getElementById("status").innerHTML = connection.effectiveType;
+		document.getElementById("status").textContent = connection.effectiveType;
 		load(`[ OK ] Network status fetched: ${connection.effectiveType}`);
 	} catch (e) {
 		load("[ FAIL ] Network status " + e);
-		document.getElementById("status").innerHTML = "ERROR";
+		document.getElementById("status").textContent = "ERROR";
 	}
 }
 
@@ -622,15 +687,21 @@ async function fetchIPData() {
 			lon: data.longitude
 		};
 
-		document.getElementById("ip").innerHTML = userData.ip;
-		document.getElementById("coords").innerHTML = `${userData.lat}, ${userData.lon}`;
+		document.getElementById("ip").textContent = userData.ip;
+		document.getElementById("coords").textContent = `${userData.lat}, ${userData.lon}`;
 		if (typeof load === "function") load(`[ OK ] IP fetched: ${userData.ip}`);
 
 		return userData;
 	} catch (e) {
-		document.getElementById("ip").innerHTML = "ERROR";
-		document.getElementById("coords").innerHTML = "ERROR";
+		document.getElementById("ip").textContent = "ERROR";
+		document.getElementById("coords").textContent = "ERROR";
 		if (typeof load === "function") load("[ FAIL ] IP fetch error: " + e.message);
+		userData = {
+			ip: 0,
+			lat: 0,
+			lon: 0
+		};
+
 		return null;
 	}
 }
@@ -647,9 +718,9 @@ async function updateMarsWeatherTable() {
 
 	if (sols.length > 0) {
 		const latest = sols[0];
-		document.getElementById("high").innerHTML = `${latest.max_temp}°C`;
-		document.getElementById("low").innerHTML = `${latest.min_temp}°C`;
-		document.getElementById("sol").innerHTML = `${latest.sol}`;
+		document.getElementById("high").textContent = `${latest.max_temp}°C`;
+		document.getElementById("low").textContent = `${latest.min_temp}°C`;
+		document.getElementById("sol").textContent = `${latest.sol}`;
 		load(`[ OK ] Curiosity Rover REMS connected: ${latest.max_temp}°C - ${latest.min_temp}°C`);
 	} else {
 		load("[ FAIL ] Curiosity Rover REMS unable to connect");
@@ -667,15 +738,16 @@ async function initMap() {
 	if (!data) return;
 
 	root = am5.Root.new("chartdiv");
+	 root._logo.dispose();
 	root.setThemes([am5themes_Animated.new(root)]);
 
 	chart = root.container.children.push(am5map.MapChart.new(root, {
 		panX: "rotateX",
 		panY: "rotateY",
 		projection: am5map.geoOrthographic(),
-		rotationX: -data.longitude,
-		rotationY: -data.latitude,
-		maxZoomLevel: 1,
+		rotationX: -data.lon,
+		rotationY: -data.lat,
+		maxZoomLevel: 1
 	}));
 
 	let graticuleSeries = chart.series.unshift(am5map.GraticuleSeries.new(root, {
@@ -769,16 +841,6 @@ function refreshColors() {
 }
 
 setInterval(() => {
-	/*
-	 if (typeof shouldRun === "function" && !shouldRun()) {
-	   if (root) {
-	     root.dispose();
-	     root = null;
-	     polygonTemplate = graticuleTemplate = circleTemplate = null;
-	   }
-	 } else {
-	   if (!root) initMap();
-	 }*/
 	refreshColors();
 }, 1000);
 
@@ -796,20 +858,14 @@ function updateLineNumbers() {
 	for (let i = 1; i <= lineCount; i++) {
 		lines += i + "\n";
 	}
-	lineNumbers.innerHTML = lines;
+	lineNumbers.textContent = lines;
 }
-javascript: void(0)
 
 function updateCode() {
 	let content = codebox.value;
+	codeBlock.textContent = content;
 
-	content = content.replace(/&/g, "&amp;");
-	content = content.replace(/</g, "&lt;");
-	content = content.replace(/>/g, "&gt;");
-
-	codeBlock.innerHTML = content;
 	updateLineNumbers();
-
 	highlightJS();
 }
 
@@ -851,17 +907,26 @@ document.getElementById("selectStyle").addEventListener("change", (e) => {
 	themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
 
 	themeLink.onload = () => {
-		setTimeout(setTheme, 50);
+		setTheme();
 	};
 });
 
 function setTheme() {
 	const r = document.documentElement;
-	const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === themeLink);
+	const themeLink = document.getElementById("theme");
 
+	if (!themeLink) return;
+
+	const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === themeLink);
 	if (!sheet) return;
 
-	const rules = Array.from(sheet.cssRules || sheet.rules);
+	let rules;
+	try {
+		  rules = Array.from(sheet.cssRules || sheet.rules);
+	} catch (e) {
+		console.warn("Access to stylesheet denied (CORS issue or not loaded yet)");
+		return;
+	}
 
 	const getStyle = (selector) => {
 		const rule = rules.find(rule => rule.selectorText && rule.selectorText.split(',').some(s => s.trim() === selector));
@@ -872,9 +937,19 @@ function setTheme() {
 	const subst = getStyle(".hljs-subst");
 	const comment = getStyle(".hljs-comment");
 
-	r.style.setProperty("--bg", hljs.backgroundColor || hljs.background);
-	r.style.setProperty("--txt", hljs.color || subst.color);
-	r.style.setProperty("--theme", comment.color);
+	if (hljs) {
+		const bgColor = hljs.backgroundColor || hljs.background;
+		if (bgColor) r.style.setProperty("--bg", bgColor);
+
+		const txtColor = hljs.color || (subst ? subst.color : null);
+		if (txtColor) r.style.setProperty("--txt", txtColor);
+	}
+
+	if (comment && comment.color) {
+		r.style.setProperty("--theme", comment.color);
+	} else if (hljs && hljs.color) {
+		r.style.setProperty("--theme", hljs.color);
+	}
 }
 
 codebox.addEventListener("input", function() {
@@ -985,7 +1060,7 @@ const output = document.getElementById("stdout");
 input.addEventListener("keydown", function(e) {
 	if (e.key === "Enter") {
 		const command = input.value;
-		output.innerHTML += `<b>${document.getElementById("email").value + ":#" || "guest@terminal:$"}</b> ${command}<br>`;
+		output.innerHTML += `<b>${document.getElementById("email").value || "guest@terminal"}:~$</b> ${command}<br>`;
 		handleCommand(command);
 		input.value = "";
 		const scroll = document.getElementById("commandInput");
@@ -1000,10 +1075,12 @@ function handleCommand(cmd) {
 	let response = "";
 	switch (cmd.toLowerCase()) {
 		case "help":
-			response = `List of available commands: about, games, youtube, telescope, radio, editor, color, login, clear`;
+			response = "List of available commands: about, games, youtube, telescope, radio, editor, theme, login, clear";
 			break;
 		case "about":
-			response = "The TERMINAL is a repository of free and unblockable games for people like you to play in their free time. This project is basically a coding playground for when I get bored, and more content will be added in future updates.<br>Special thanks to the very cool people at the UGS Google Doc for making this possible.";
+			response = `The TERMINAL is a repository of free games, proxies, and unblocked tools. All resources have been checked for malware.<br><br>
+				Special thanks to the <a href="https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/edit?tab=t.0">Ultimate Game Stash</a> for providing the game files. All rights go to their respective owners.
+			`;
 			break;
 		case "games":
 			document.getElementById("commandInput").style.display = "none";
@@ -1026,15 +1103,15 @@ function handleCommand(cmd) {
 			document.getElementById("html").style.display = "block";
 			document.getElementById("terminalContent").style.display = "none";
 			closeSide();
-			setTheme();
+			setTheme(); 
+			updateCode(); 
+
 			isCrtEnabled = true;
 			toggleCrt();
-
-			document.getElementById("bg").style.display = "none";
 			document.body.style.textShadow = "none";
 			break;
-		case "color":
-			document.getElementById("color").style.display = "block";
+		case "theme":
+			document.getElementById("themeSetting").style.display = "block";
 			document.getElementById("commandInput").style.display = "none";
 			break;
 		case "login":
@@ -1045,17 +1122,14 @@ function handleCommand(cmd) {
 			if (admin === true) {
 				document.getElementById("admin").style.display = "block";
 			} else {
-				response = "Access denied. You think it's gonna be that easy?";
+				response = "Access denied.";
 			}
-			break;
-		case "password":
-			response = "Really? I'm not just gonna tell you, you gotta do better than that!";
 			break;
 		case "furries are cringe":
 			response = "I agree"; // Am I wrong?
 			break;
 		case "clear":
-			output.innerHTML = "";
+			output.textContent = "";
 			return;
 		default:
 			response = `ERROR: Command not found: ${cmd}`;
@@ -1065,7 +1139,7 @@ function handleCommand(cmd) {
 
 // Search
 
-document.getElementById("file-search").focus();
+document.getElementById("fileSearch").focus();
 
 document.body.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") {
@@ -1097,7 +1171,7 @@ document.body.addEventListener("keydown", (e) => {
 });
 
 function handleSearch() {
-	const query = document.getElementById("file-search").value.toLowerCase();
+	const query = document.getElementById("fileSearch").value.toLowerCase();
 	generateAllSections(query);
 }
 
@@ -1148,11 +1222,14 @@ const sizeObserver = new IntersectionObserver((entries) => {
 
 function generateAllSections(filter = "") {
 	const container = document.getElementById("sections-container");
-	container.innerHTML = "";
+	const fileCount = document.getElementById("fileCount");
+	container.textContent = "";
 
 	const allChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 	const filesByChar = {};
 	allChars.forEach(char => filesByChar[char] = []);
+
+	let totalFiles = 0;
 
 	files.forEach(file => {
 		const lower = file.toLowerCase();
@@ -1162,10 +1239,19 @@ function generateAllSections(filter = "") {
 				const firstChar = aftercl[0].toUpperCase();
 				if (filesByChar[firstChar]) {
 					filesByChar[firstChar].push(file);
+					totalFiles++;
 				}
 			}
 		}
 	});
+
+	if (fileCount) {
+		if (totalFiles > 1) {
+			fileCount.textContent = totalFiles + " items";
+		} else {
+			fileCount.textContent = totalFiles + " item";
+		}
+	}
 
 	allChars.forEach(char => {
 		if (filter !== "" && filesByChar[char].length === 0) return;
@@ -1260,9 +1346,9 @@ function toggleBackground() {
 	bg.classList.toggle("invisible");
 
 	if (bg.classList.contains("invisible")) {
-		document.getElementById("teleStatus").innerHTML = "> STATUS: Deactivated";
+		document.getElementById("teleStatus").textContent = "> STATUS: Deactivated";
 	} else {
-		document.getElementById("teleStatus").innerHTML = "> STATUS: Activated";
+		document.getElementById("teleStatus").textContent = "> STATUS: Activated";
 	}
 }
 
@@ -1308,7 +1394,6 @@ const songData = [{
 
 let radioPlayer;
 let searchPlayer;
-const API_KEY = "AIzaSyARfwKry_c26u7Y86Tc1nUE1tkTDv-BS3Y";
 
 function getRandomSong() {
 	return songData[Math.floor(Math.random() * songData.length)];
@@ -1366,7 +1451,7 @@ async function searchVideos() {
 	const query = document.getElementById("query").value;
 	if (!query) return alert("Enter a search term");
 
-	const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${query}&type=video&key=${API_KEY}`;
+	const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${query}&type=video&key=${CONFIG.YOUTUBE_API_KEY}`;
 
 	try {
 		const response = await fetch(url);
@@ -1374,13 +1459,13 @@ async function searchVideos() {
 		displayResults(data.items);
 		document.getElementById("videoDisplay").style.display = "none";
 	} catch (e) {
-		document.getElementById("results").innerHTML = "ERROR: " + e;
+		document.getElementById("results").textContent = "ERROR: " + e;
 	}
 }
 
 function displayResults(videos) {
 	const resultsDiv = document.getElementById("results");
-	resultsDiv.innerHTML = "";
+	resultsDiv.textContent = "";
 	videos.forEach(video => {
 		const {
 			title,
@@ -1391,11 +1476,11 @@ function displayResults(videos) {
 
 		const card = document.createElement("div");
 		card.className = "video-card";
-		card.innerHTML = `
-     <img src="${thumbnails.medium.url}" alt="${title}">
-     <p>${title}</p>
-     <span>${channelTitle}</span>
-   `;
+		card.textContent = `
+			<img src="${thumbnails.medium.url}" alt="${title}">
+			<p>${title}</p>
+			<span>${channelTitle}</span>
+		`;
 
 		card.onclick = () => {
 			document.getElementById("videoDisplay").style.display = "block";
@@ -1511,13 +1596,11 @@ function toggleCrt() {
 		glowline.style.display = "block";
 		scanline.style.display = "block";
 		document.body.classList.add("flicker");
-		bg.style.display = "block";
 	} else {
 		filter.setAttribute("scale", 0);
 		glowline.style.display = "none";
 		scanline.style.display = "none";
 		document.body.classList.remove("flicker");
-		bg.style.display = "none";
 	}
 }
 
