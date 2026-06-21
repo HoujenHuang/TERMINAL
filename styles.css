@@ -48,6 +48,15 @@ a {
 
 /* Fade in animation for the splash screen */
 
+#splashText {
+	font-family: 'Courier New', Courier, monospace !important;
+	line-height: 0.6 !important;
+	white-space: pre;
+	display: inline-block;
+	text-align: center;
+	letter-spacing: 0px !important;
+}
+
 .fade-in {
 	animation: fadeIn 1s ease-in forwards;
 }
@@ -142,6 +151,22 @@ input[type="button"]:hover, button:hover {
 	width: 100%;
 	height: calc(100vh - 8px);
 	filter: url(#chromatic-aberration) url(#glitch);
+}
+
+.container::before {
+	content: "";
+	background-image: var(--bg-image, none);
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: contain;
+	position: fixed;
+	z-index: -1;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	left: 0;
+	margin: 25px;
+	opacity: .1;
 }
 
 #container.crt-off {
