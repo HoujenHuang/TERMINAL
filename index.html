@@ -2,8 +2,15 @@
 <head>
 	<meta charset="utf-8" name="referrer">
 	<title>The TERMINAL</title>
-	<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 600'%3E%3Cstyle%3Etext %7B font-family: monospace%3B font-size: 100px%3B dominant-baseline: hanging%3B white-space: pre%3B %7D%3C/style%3E%3Ctext y='0' fill='black'%3E████████╗%3C/text%3E%3Ctext y='100' fill='black'%3E╚══██╔══╝%3C/text%3E%3Ctext y='200' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='300' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='400' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='500' fill='black'%3E   ╚═╝   %3C/text%3E%3C/svg%3E">
+	<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 600'%3E%3Cstyle%3Etext %7B font-family: monospace%3B font-size: 100px%3B dominant-baseline: hanging%3B white-space: pre%3B %7D%3C/style%3E%3Ctext y='0' fill='black'%3E████████╗%3C/text%3E%3Ctext y='100' fill='black'%3E╚══██╔══╝%3C/text%3E%3Ctext y='200' fill='black'%3E	 ██║	 %3C/text%3E%3Ctext y='300' fill='black'%3E	 ██║	 %3C/text%3E%3Ctext y='400' fill='black'%3E	 ██║	 %3C/text%3E%3Ctext y='500' fill='black'%3E	 ╚═╝	 %3C/text%3E%3C/svg%3E">
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
+
+	<!-- Fonts -->
+
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Anonymous+Pro&family=Courier+Prime&family=Cousine&family=Cutive+Mono&family=Fira+Code&family=Fira+Mono&family=IBM+Plex+Mono&family=Inconsolata&family=JetBrains+Mono&family=Nanum+Gothic+Coding&family=Noto+Sans+Mono&family=PT+Mono&family=Roboto+Mono&family=Share+Tech+Mono&family=Source+Code+Pro&family=Space+Mono&family=Ubuntu+Mono&display=swap" rel="stylesheet">
+
 	<!-- Dependencies -->
 
 	<link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
@@ -16,6 +23,7 @@
 	<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
 	<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+
 </head>
 <body>
 	<div id="radioPlayer" class="invisible"></div>
@@ -71,19 +79,20 @@
 		</div>
 
 		<div id="terminal" class="terminal-container">
-			<b id="splash" class="invisible" style="text-align: center;">
-				████████╗███████╗██████╗ ███╗   ███╗██╗  ███╗██╗  ██╗ █████╗  ███████╗<br>
-				╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║ ████║██║  ██║██╔══██╗ ██╔══██║<br>
-				   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██║███████║███████║ ██║  ██║<br>
-				   ██║   ██╔══╝  ██╔═══╝ ██║╚██╔╝██║████╔╝██║██╔══██║██╔══██║ ██║  ██║<br>
-				   ██║   ███████╗██║     ██║ ╚═╝ ██║███╔╝ ██║██║  ██║██║  ██║███║  ██║<br>
-				   ╚═╝   ╚══════╝╚═╝     ╚═╝     ╚═╝╚══╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══╝  ╚═╝
-
+			<div id="splash" class="invisible" style="text-align: center;">
+				<div id="splashText">
+████████╗███████╗██████╗ ███╗	 ███╗██╗	███╗██╗	██╗ █████╗	███████╗<br>
+╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║ ████║██║	██║██╔══██╗ ██╔══██║<br>
+	 ██║	 █████╗	██████╔╝██╔████╔██║██║██╔██║███████║███████║ ██║	██║<br>
+	 ██║	 ██╔══╝	██╔═══╝ ██║╚██╔╝██║████╔╝██║██╔══██║██╔══██║ ██║	██║<br>
+	 ██║	 ███████╗██║		 ██║ ╚═╝ ██║███╔╝ ██║██║	██║██║	██║███║	██║<br>
+	 ╚═╝	 ╚══════╝╚═╝		 ╚═╝		 ╚═╝╚══╝	╚═╝╚═╝	╚═╝╚═╝	╚═╝╚══╝	╚═╝
+				</div>
 				<!-- Sidebar collapse buttons -->
 
 				<button id="sideBtnLeft" class="sideBtn" onclick="openSide()" style="float: left; margin-left: 5px; opacity: 0;">&#11166;</button>
 				<button id="sideBtnRight" class="sideBtn" style="float: right; text-align: right; margin-right: 5px; opacity: 0;" onclick="openSide()">&#11164;</button>
-			</b>
+			</div>
 
 			<div class="terminal-container" style="height: calc(100% - 6vw - 23px); flex-direction: row;">
 				<div id="terminalContent" class="terminal" style="opacity: 0;">
@@ -102,11 +111,11 @@
 								<span><b><span class="user">guest</span>@games:~$</b> find&nbsp;</span>
 							</div>
 							<div class="stretch">
-								<input type="text" id="file-search" onkeyup="handleSearch()" autocomplete="off">
+								<input type="text" id="fileSearch" onkeyup="handleSearch()" autocomplete="off">
 							</div>
 						</section>
 
-						CAUTION: Some files may be corrupted.
+						<span id="fileCount">0 items</span>. CAUTION: Some files may be corrupted. Report any to the <a href="https://discord.gg/rmVsAqkpkA">UGS Discord Server</a>.
 						<div id="sections-container"></div>
 					</div>
 
@@ -153,30 +162,58 @@
 						<div id="results" class="video-grid"></div>
 					</div>
 
-					<!-- Colors -->
+					<!-- Themes -->
 
-					<div id="color" class="program invisible">
+					<div id="themeSetting" class="program invisible">
+						=====<br>
 						<button id="crtToggle" onclick="toggleCrt()">CRT Effects</button><br><br>
-						Preset Themes<br><br>
+						<b>Preset Color Schemes</b><br><br>
 						<button id="bgGreen">P1 Green Phosphor</button>
 						<button id="bgAmber">P3 Amber Phosphor</button>
 						<button id="bgWhite">P4 White Phosphor</button><br><br>
 
-						Theme<br><br>
+						<b>Main Body</b><br><br>
 						R <input type="number" id="r" value="51" min="0" max="255">
 						G <input type="number" id="g" value="255" min="0" max="255">
 						B <input type="number" id="b" value="51" min="0" max="255"><br><br>
 
-						Background<br><br>
+						<b>Background</b><br><br>
 						R <input type="number" id="bg-r" value="0" min="0" max="255">
 						G <input type="number" id="bg-g" value="0" min="0" max="255">
 						B <input type="number" id="bg-b" value="0" min="0" max="255"><br><br>
 
-						Text<br><br>
+						<b>Text</b><br><br>
 						R <input type="number" id="txt-r" value="51" min="0" max="255">
 						G <input type="number" id="txt-g" value="255" min="0" max="255">
-						B <input type="number" id="txt-b" value="51" min="0" max="255">
-					</div>
+						B <input type="number" id="txt-b" value="51" min="0" max="255"><br><br>
+
+						<b>Themes</b><br><br>
+
+						<button onclick="setThemeSoviet()">Sovietwave</button>
+						<button onclick="setThemeImperial()">Imperial</button><br><br>
+
+						<b>Fonts</b><br><br>
+						<select id="fontSelect" style="color: var(--txt); border: 1px solid var(--theme);">
+							<option value="Courier New" style="font-family: Courier New">Courier New</option>
+							<option value="Anonymous Pro" style="font-family: Anonymous Pro">Anonymous Pro</option>
+							<option value="Courier Prime" style="font-family: Courier Prime">Courier Prime</option>
+							<option value="Cousine" style="font-family: Cousine">Cousine</option>
+							<option value="Cutive Mono" style="font-family: Cutive Mono">Cutive Mono</option>
+							<option value="Fira Code" style="font-family: Fira Code">Fira Code</option>
+							<option value="Fira Mono" style="font-family: Fira Mono">Fira Mono</option>
+							<option value="IBM Plex Mono" style="font-family: IBM Plex Mono">IBM Plex Mono</option>
+							<option value="Inconsolata" style="font-family: Inconsolata">Inconsolata</option>
+							<option value="JetBrains Mono" style="font-family: JetBrains Mono">JetBrains Mono</option>
+							<option value="Nanum Gothic Coding" style="font-family: Nanum Gothic Coding">Nanum Gothic Coding</option>
+							<option value="Noto Sans Mono" style="font-family: Noto Sans Mono">Noto Sans Mono</option>
+							<option value="PT Mono" style="font-family: PT Mono">PT Mono</option>
+							<option value="Roboto Mono" style="font-family: Roboto Mono">Roboto Mono</option>
+							<option value="Share Tech Mono" style="font-family: Share Tech Mono">Share Tech Mono</option>
+							<option value="Source Code Pro" style="font-family: Source Code Pro">Source Code Pro</option>
+							<option value="Space Mono" style="font-family: Space Mono">Space Mono</option>
+							<option value="Ubuntu Mono" style="font-family: Ubuntu Mono">Ubuntu Mono</option>
+					</select>
+				</div>
 
 					<!-- Admin -->
 
@@ -222,7 +259,7 @@
 					</div>
 				</div>
 
-				<!-- Chernobyl Simulation -->
+				<!-- Chernobyl simulation -->
 
 				<div id="chernobyl" style="display:none; margin:5px;">
 					<div id="aim"></div>
@@ -462,7 +499,7 @@
 				<b>ENDPOINT LAT/LON</b><span id="coords" style="float:right;">00.0000, 00.0000</span>
 				<button id="spinBtn">Spin</button>
 				<button id="homeBtn">Home</button>
-				<div id="chartdiv" style="height: 100%;"></div>
+				<div id="chartdiv" style="width: 100%; height: calc(100% - 4vw - 10px);"></div>
 			</div>
 
 			<div class="mini-info-container">
@@ -503,10 +540,10 @@
 		<!-- Chromatic aberration -->
 
 		<filter id="chromatic-aberration" x="-10%" y="-10%" width="120%" height="120%">
-			<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red" />
+			<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0	0 0 0 0 0	0 0 0 0 0	0 0 0 1 0" result="red" />
 			<feOffset in="red" dx="-1" dy="0" result="red-shift" />
-			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="green" />
-			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue" />
+			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0	0 1 0 0 0	0 0 0 0 0	0 0 0 1 0" result="green" />
+			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0	0 0 0 0 0	0 0 1 0 0	0 0 0 1 0" result="blue" />
 			<feOffset in="blue" dx="1" dy="0" result="blue-shift" />
 
 			<feBlend in="red-shift" in2="green" mode="screen" result="red-green" />
@@ -514,3 +551,4 @@
 		</filter>
 	</svg>
 </body>
+</html>
