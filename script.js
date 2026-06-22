@@ -1447,49 +1447,66 @@ function onSearchPlayerStateChange(event) {
 const searchBtn = document.getElementById("youtubeSearch");
 searchBtn.addEventListener("click", searchVideos);
 
+// 1. Correct the Search Function to handle data properly
 async function searchVideos() {
 	const query = document.getElementById("query").value;
 	if (!query) return alert("Enter a search term");
+
+	// Ensure the display is visible
+	const resultsDiv = document.getElementById("results");
+	resultsDiv.innerHTML = "Searching...";
 
 	const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${query}&type=video&key=${CONFIG.YOUTUBE_API_KEY}`;
 
 	try {
 		const response = await fetch(url);
 		const data = await response.json();
-		displayResults(data.items);
+		if (data.items) {
+			displayResults(data.items);
+		} else {
+			resultsDiv.innerHTML = "No results found. Check your API key.";
+		}
 		document.getElementById("videoDisplay").style.display = "none";
 	} catch (e) {
-		document.getElementById("results").textContent = "ERROR: " + e;
+		resultsDiv.innerHTML = "ERROR: " + e;
 	}
 }
 
 function displayResults(videos) {
 	const resultsDiv = document.getElementById("results");
-	resultsDiv.textContent = "";
+	resultsDiv.innerHTML = "";
+
 	videos.forEach(video => {
-		const {
-			title,
-			thumbnails,
-			channelTitle
-		} = video.snippet;
+		const { title, thumbnails, channelTitle } = video.snippet;
 		const videoId = video.id.videoId;
 
 		const card = document.createElement("div");
 		card.className = "video-card";
-		card.textContent = `
-			<img src="${thumbnails.medium.url}" alt="${title}">
-			<p>${title}</p>
+
+		card.innerHTML = `
+			<img src="${thumbnails.medium.url}" alt="${title}" style="width:100%">
+			<p><b>${title}</b></p>
 			<span>${channelTitle}</span>
 		`;
 
 		card.onclick = () => {
-			document.getElementById("videoDisplay").style.display = "block";
+			const videoDisplay = document.getElementById("videoDisplay");
+			videoDisplay.style.display = "block";
+			videoDisplay.classList.remove("invisible");
+
 			document.getElementById("playingTitle").innerText = title;
-			searchPlayer.loadVideoById(videoId);
-			const vid = document.getElementById("videoDisplay");
-			vid.scrollIntoView({
-				behavior: "smooth"
-			});
+
+			if (searchPlayer && typeof searchPlayer.loadVideoById === "function") {
+				searchPlayer.loadVideoById(videoId);
+			} else {
+				searchPlayer = new YT.Player("mainVideoDisplay", {
+					height: "360",
+					width: "640",
+					videoId: videoId
+				});
+			}
+
+			videoDisplay.scrollIntoView({ behavior: "smooth" });
 		};
 		resultsDiv.appendChild(card);
 	});
