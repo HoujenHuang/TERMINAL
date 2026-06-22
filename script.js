@@ -1447,12 +1447,10 @@ function onSearchPlayerStateChange(event) {
 const searchBtn = document.getElementById("youtubeSearch");
 searchBtn.addEventListener("click", searchVideos);
 
-// 1. Correct the Search Function to handle data properly
 async function searchVideos() {
 	const query = document.getElementById("query").value;
 	if (!query) return alert("Enter a search term");
 
-	// Ensure the display is visible
 	const resultsDiv = document.getElementById("results");
 	resultsDiv.innerHTML = "Searching...";
 
