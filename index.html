@@ -6,16 +6,13 @@
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
 
 	<!-- Fonts -->
-
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link href="https://fonts.googleapis.com/css2?family=Anonymous+Pro&family=Courier+Prime&family=Cousine&family=Cutive+Mono&family=Fira+Code&family=Fira+Mono&family=IBM+Plex+Mono&family=Inconsolata&family=JetBrains+Mono&family=Nanum+Gothic+Coding&family=Noto+Sans+Mono&family=PT+Mono&family=Roboto+Mono&family=Share+Tech+Mono&family=Source+Code+Pro&family=Space+Mono&family=Ubuntu+Mono&display=swap" rel="stylesheet">
 
 	<!-- Dependencies -->
-
 	<link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
 	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-	<script src="https://www.youtube.com/iframe_api"></script>
 	<script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/map.js"></script>
@@ -23,17 +20,17 @@
 	<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
 	<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
-
 </head>
 <body>
-	<div id="radioPlayer" class="invisible"></div>
-	<div id="outputList" style="z-index: 2; position: absolute; filter: url(#glitch) url(#chromatic-aberration);"></div>
-
+	<div id="radioPlayer"></div>
+	<div id="outputList" style="z-index: 2; position: absolute; filter: url(#glitch) url(#chromatic-aberration);"> Press any key to continue <br>
+		<br>
+	</div>
 	<div id="container" class="container">
-		<!-- Left panel -->
 
+		<!-- Left panel -->
 		<div id="leftTerminal" class="split-container">
-			<span style="margin-left:5px">SYSTEM PANEL<button class="sideBtn" style="float:right; text-align:right; margin-right:5px;" onclick="closeSide()">&#11164;</button></span>
+			<span style="margin-left:5px">SYSTEM PANEL <button class="sideBtn" style="float:right; text-align:right; margin-right:5px;" onclick="closeSide()">&#11164;</button></span>
 
 			<div class="mini-info-container" style="text-align:center;">
 				<b class="mini-info" id="clock" style="font-size:2em;">01:23:48</b>
@@ -57,12 +54,20 @@
 			</div>
 
 			<div class="split">
-				<div class="label"><b>FPS:</b> <span id="fpsText">Calculating...</span></div>
+				<div class="label">
+					<b>FPS:</b>
+					<span id="fpsText">Calculating...</span>
+				</div>
+
 				<canvas id="fpsChart"></canvas>
 			</div>
 
 			<div class="split">
-				<div class="label"><b>MEMORY:</b> <span id="memText">Calculating...</span></div>
+				<div class="label">
+					<b>MEMORY:</b>
+					<span id="memText">Calculating...</span>
+				</div>
+
 				<canvas id="memChart"></canvas>
 			</div>
 
@@ -81,35 +86,34 @@
 		<div id="terminal" class="terminal-container">
 			<div id="splash" class="invisible" style="text-align: center;">
 				<div id="splashText">
-████████╗███████╗██████╗ ███╗	 ███╗██╗	███╗██╗	██╗ █████╗	███████╗<br>
-╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║ ████║██║	██║██╔══██╗ ██╔══██║<br>
-	 ██║	 █████╗	██████╔╝██╔████╔██║██║██╔██║███████║███████║ ██║	██║<br>
-	 ██║	 ██╔══╝	██╔═══╝ ██║╚██╔╝██║████╔╝██║██╔══██║██╔══██║ ██║	██║<br>
-	 ██║	 ███████╗██║		 ██║ ╚═╝ ██║███╔╝ ██║██║	██║██║	██║███║	██║<br>
-	 ╚═╝	 ╚══════╝╚═╝		 ╚═╝		 ╚═╝╚══╝	╚═╝╚═╝	╚═╝╚═╝	╚═╝╚══╝	╚═╝
-				</div>
-				<!-- Sidebar collapse buttons -->
+████████╗███████╗██████╗ ███╗   ███╗██╗  ███╗██╗  ██╗ █████╗  ███████╗<br>
+╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║ ████║██║  ██║██╔══██╗ ██╔══██║<br>
+   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██║███████║███████║ ██║  ██║<br>
+   ██║   ██╔══╝  ██╔═══╝ ██║╚██╔╝██║████╔╝██║██╔══██║██╔══██║ ██║  ██║<br>
+   ██║   ███████╗██║     ██║ ╚═╝ ██║███╔╝ ██║██║  ██║██║  ██║███║  ██║<br>
+   ╚═╝   ╚══════╝╚═╝     ╚═╝     ╚═╝╚══╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══╝  ╚═╝
 
+				<!-- Sidebar collapse buttons -->
 				<button id="sideBtnLeft" class="sideBtn" onclick="openSide()" style="float: left; margin-left: 5px; opacity: 0;">&#11166;</button>
 				<button id="sideBtnRight" class="sideBtn" style="float: right; text-align: right; margin-right: 5px; opacity: 0;" onclick="openSide()">&#11164;</button>
 			</div>
 
 			<div class="terminal-container" style="height: calc(100% - 6vw - 23px); flex-direction: row;">
 				<div id="terminalContent" class="terminal" style="opacity: 0;">
-					<!-- Stdout -->
 
+					<!-- Stdout -->
 					<div id="stdout">
 						Type 'help' to see list of available commands<br>
 						Type Esc key to return to home directory<br><br>
 					</div>
 
 					<!-- Games -->
-
 					<div id="games" class="program">
 						<section class="flexbox">
 							<div class="normal">
-								<span><b><span class="user">guest</span>@games:~$</b> find&nbsp;</span>
+								<span><b><span class="user">guest</span>@games:~$</b>find&nbsp;</span>
 							</div>
+
 							<div class="stretch">
 								<input type="text" id="fileSearch" onkeyup="handleSearch()" autocomplete="off">
 							</div>
@@ -120,27 +124,24 @@
 					</div>
 
 					<!-- Telescope -->
-
 					<div id="telescope" class="program invisible">
 						=====<br>
 						<b>ГЛАЗ-1</b><br><br>
-						Наш космос – это чудесное место.<br><br>
+						Bring the beauty of the cosmos to your background.<br><br>
 						<button id="teleStatus" onclick="toggleBackground()">> STATUS: Activated</button><br>
 						<button onclick="setRandomBackground()">> Operate Orbital Telescope</button><br>
 					</div>
 
 					<!-- Radio -->
-
 					<div id="radio" class="program invisible">
 						=====<br>
 						<b>УВБ-76</b><br><br>
-						Вы слушаете радио «Советская волна». Рекомендуется использовать наушники.<br><br>
-						<div id="songTitle">ERROR: UVB-76 Radio Station not connected</div><br>
+						Listen to the space-age optimism from beyond the Iron Curtain. Headphones are recommended.<br><br>
+						<div id="songTitle">[ FAIL ] UVB-76 Radio Station not connected</div><br>
 						<button id="playBtn" onclick="togglePlayback()">> PAUSE</button><br>
 					</div>
 
 					<!-- YouTube -->
-
 					<div id="youtube" class="program invisible">
 						=====<br>
 						<section class="search-box flexbox">
@@ -152,21 +153,19 @@
 							</div>
 						</section>
 
-						<button id="youtubeSearch">Search</button>
-
+						<button id="youtubeSearch">> Search</button>
 						<div id="videoDisplay" class="invisible">
 							<div id="mainVideoDisplay"></div>
 							<h2 id="playingTitle"></h2>
 						</div>
-
 						<div id="results" class="video-grid"></div>
 					</div>
 
 					<!-- Themes -->
-
 					<div id="themeSetting" class="program invisible">
 						=====<br>
 						<button id="crtToggle" onclick="toggleCrt()">CRT Effects</button><br><br>
+
 						<b>Preset Color Schemes</b><br><br>
 						<button id="bgGreen">P1 Green Phosphor</button>
 						<button id="bgAmber">P3 Amber Phosphor</button>
@@ -188,9 +187,8 @@
 						B <input type="number" id="txt-b" value="51" min="0" max="255"><br><br>
 
 						<b>Themes</b><br><br>
-
-						<button onclick="setThemeSoviet()">Sovietwave</button>
-						<button onclick="setThemeImperial()">Imperial</button><br><br>
+						<button onclick="setThemeSoviet()">> Sovietwave</button>
+						<button onclick="setThemeImperial()">> Imperial</button><br><br>
 
 						<b>Fonts</b><br><br>
 						<select id="fontSelect" style="color: var(--txt); border: 1px solid var(--theme);">
@@ -212,37 +210,30 @@
 							<option value="Source Code Pro" style="font-family: Source Code Pro">Source Code Pro</option>
 							<option value="Space Mono" style="font-family: Space Mono">Space Mono</option>
 							<option value="Ubuntu Mono" style="font-family: Ubuntu Mono">Ubuntu Mono</option>
-					</select>
-				</div>
+						</select>
+					</div>
 
 					<!-- Admin -->
-
 					<div id="login" class="program invisible">
 						<section class="flexbox">
-							<div class="normal">
-								Email:&nbsp;
-							</div>
+							<div class="normal">Email:&nbsp;</div>
 							<div class="stretch">
 								<input type="text" id="email">
 							</div>
 						</section>
 
 						<section class="flexbox">
-							<div class="normal">
-								Password:&nbsp;
-							</div>
+							<div class="normal">Password:&nbsp;</div>
 							<div class="stretch">
 								<input type="password" id="password">
 							</div>
 						</section>
 
 						<button onclick="login()">Login</button><br><br>
-
-						<b id="adminAlert" class="invisible">Wrong username/password</b>
+						<b id="adminAlert" class="invisible">[ FAIL ] Wrong username or password</b>
 					</div>
 
 					<!-- Command input -->
-
 					<div id="commandInput" class="invisible">
 						<section class="flexbox">
 							<div class="normal">
@@ -260,21 +251,23 @@
 				</div>
 
 				<!-- Chernobyl simulation -->
-
 				<div id="chernobyl" style="display:none; margin:5px;">
 					<div id="aim"></div>
+
 					<div class="grid">
 						<div>
 							<canvas id="chCanvas" width="400" height="220"></canvas>
 							<div id="status2"></div>
 							<div id="DEBUG"></div>
 						</div>
-						<div id="chCommand" style="width:100%; height:100%; padding:5px; border:2px solid var(--theme);">
-							<div id="chStdout">In order to proceed, you must operate the Chernobyl Nuclear Power Plant.<br>Type 'help' to see list of available commands<br></div>
 
+						<div id="chCommand" style="width:100%; height:100%; padding:5px; border:2px solid var(--theme);">
+							<div id="chStdout">In order to proceed, you must operate the Chernobyl Nuclear Power Plant. <br>Type 'help' to see list of available commands <br>
+							</div>
 							<section class="flexbox">
 								<div class="normal">
-									<b><span class="user">guest</span>@terminal:~$</b>&nbsp;
+									<b>
+										<span class="user">guest</span>@terminal:~$ </b>&nbsp;
 								</div>
 								<div class="stretch">
 									<input id="chStdin" type="text" autocomplete="off">
@@ -285,12 +278,10 @@
 				</div>
 
 				<!-- HTML editor -->
-
 				<div id="html" class="program invisible">
 					<button onclick="runEditor()" class="html-btn">Run Code</button>
-					<span>
-						Theme:
-						<select id="selectStyle">
+
+					<span> Theme: <select id="selectStyle">
 							<option>agate</option>
 							<option>an-old-hope</option>
 							<option>androidstudio</option>
@@ -479,9 +470,9 @@
 		</div>
 
 		<!-- Right panel -->
-
 		<div id="rightTerminal" class="split-container">
-			<span style="margin-right:5px; text-align:right;">NETWORK PANEL<button class="sideBtn" onclick="closeSide()" style="float:left; margin-left:5px;">&#11166;</button></span>
+			<span style="margin-right:5px; text-align:right;">NETWORK PANEL <button class="sideBtn" onclick="closeSide()" style="float:left; margin-left:5px;">&#11166;</button></span>
+
 			<div class="mini-info-container">
 				<div class="mini-info">
 					<b>STATUS</b><br>
@@ -496,7 +487,8 @@
 
 			<div class="split">
 				<b>WORLD VIEW</b><br>
-				<b>ENDPOINT LAT/LON</b><span id="coords" style="float:right;">00.0000, 00.0000</span>
+				<b>ENDPOINT LAT/LON</b>
+				<span id="coords" style="float:right;">00.0000, 00.0000</span>
 				<button id="spinBtn">Spin</button>
 				<button id="homeBtn">Home</button>
 				<div id="chartdiv" style="width: 100%; height: calc(100% - 4vw - 10px);"></div>
@@ -504,51 +496,59 @@
 
 			<div class="mini-info-container">
 				<div class="mini-info">
-					<b>HIGH:</b> <span id="high"></span><br>
-					<b>LOW:</b> <span id="low"></span>
+					<b>HIGH:</b>
+					<span id="high"></span><br>
+					<b>LOW:</b>
+					<span id="low"></span>
 				</div>
 
 				<div class="mini-info">
-					<b>SOL:</b> <span id="sol"></span><br>
-					<b>LOCATION:</b> <a href="https://mars.nasa.gov/layout/embed/image/mslweather/">MARS</a>
+					<b>SOL:</b>
+					<span id="sol"></span><br>
+					<b>LOCATION:</b>
+					<a href="https://mars.nasa.gov/layout/embed/image/mslweather/">MARS</a>
 				</div>
 			</div>
 
 			<div class="split">
-				<div class="label"><b>NETWORK SPEED:</b> <span id="speedText">Calculating...</span></div>
+				<div class="label">
+					<b>NETWORK SPEED:</b>
+					<span id="speedText">Calculating...</span>
+				</div>
+
 				<canvas id="speedChart"></canvas>
 			</div>
 		</div>
 	</div>
 
 	<!-- Visual effects -->
-
 	<div id="glowline" class="glowline"></div>
 	<div id="scanline" class="scanline"></div>
 	<div id="bg" class="bg"></div>
 
 	<svg style="display: none;">
+
 		<!-- Glitch -->
 		<defs>
 			<filter id="glitch">
 				<feTurbulence type="fractalNoise" baseFrequency="0.002 0.2" numOctaves="2" seed="1" result="noise" />
-
 				<feDisplacementMap id="displacement" in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="R" />
 			</filter>
 		</defs>
 
 		<!-- Chromatic aberration -->
-
 		<filter id="chromatic-aberration" x="-10%" y="-10%" width="120%" height="120%">
 			<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0	0 0 0 0 0	0 0 0 0 0	0 0 0 1 0" result="red" />
 			<feOffset in="red" dx="-1" dy="0" result="red-shift" />
 			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0	0 1 0 0 0	0 0 0 0 0	0 0 0 1 0" result="green" />
 			<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0	0 0 0 0 0	0 0 1 0 0	0 0 0 1 0" result="blue" />
 			<feOffset in="blue" dx="1" dy="0" result="blue-shift" />
-
 			<feBlend in="red-shift" in2="green" mode="screen" result="red-green" />
 			<feBlend in="red-green" in2="blue-shift" mode="screen" />
 		</filter>
 	</svg>
+
+	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/script.js"></script>
+	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/config.js"></script>
 </body>
 </html>
