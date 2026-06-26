@@ -1,19 +1,35 @@
-document.addEventListener('DOMContentLoaded', (event) => {
-	load("[ OK ] DOM fully loaded");
-	document.body.classList.add("flicker");
+var start = false;
 
-	setTimeout(() => {
-		displayTime();
-		displayDate();
-		updateTimer();
-		checkBrowser();
-		checkFPS();
-		checkMemory();
-		checkSpeed();
-		checkBattery();
-		checkConnection();
-		am5.ready(initMap);
-	}, 500);
+document.body.addEventListener("keyup", (event) => {
+	if (start === false) {
+		radioPlayer.volume = 0.5;
+		playNewRadioSong(); 
+
+		load("[ OK ] DOM fully loaded");
+		document.body.classList.add("flicker");
+
+		setTimeout(() => {
+			displayTime();
+			displayDate();
+			updateTimer();
+			checkBrowser();
+			checkFPS();
+			checkMemory();
+			checkSpeed();
+			checkBattery();
+			checkConnection();
+			fetchIPData();
+			am5.ready(initMap);
+			updateMarsWeatherTable();
+			generateAllSections();
+			runEditor();
+			updateCode();
+			setRandomBackground();
+		}, 500);
+
+		start = true;
+		graph();
+	}
 });
 
 // Battery saver
@@ -39,6 +55,15 @@ function toggleBatterySaver() {
 
 function shouldRun() {
 	return isActive && isTabVisible;
+}
+
+function graph() {
+	if (isActive === true && start === true) {
+		setInterval(displayTime, 1000);
+		setInterval(updateTimer, 1000);
+		setInterval(checkMemory, 1000);
+		setInterval(checkSpeed, 5000);
+	}
 }
 
 // Tab toggle
@@ -96,10 +121,6 @@ function displayTime() {
 	}
 }
 
-if (shouldRun()) {
-	setInterval(displayTime, 1000);
-}
-
 // Date
 
 function displayDate() {
@@ -148,10 +169,6 @@ function updateTimer() {
 		load(`[ OK ] Uptime synced: ${hDisplay}:${mDisplay}:${sDisplay}`);
 		isUptimeInit = true;
 	}
-}
-
-if (shouldRun()) {
-	setInterval(updateTimer, 1000);
 }
 
 // Browser
@@ -377,9 +394,6 @@ async function checkSpeed() {
 		}
 	}
 }
-
-setInterval(checkMemory, 1000);
-setInterval(checkSpeed, 5000);
 
 // Battery
 
@@ -668,10 +682,6 @@ let isGlobeInit = false;
 let root, chart, rotationAnimation;
 let polygonTemplate, graticuleTemplate, circleTemplate;
 
-document.addEventListener("DOMContentLoaded", async function() {
-	await fetchIPData();
-});
-
 async function fetchIPData() {
 	if (userData) return userData;
 
@@ -727,8 +737,6 @@ async function updateMarsWeatherTable() {
 	}
 }
 
-updateMarsWeatherTable();
-
 // World view
 
 async function initMap() {
@@ -738,7 +746,7 @@ async function initMap() {
 	if (!data) return;
 
 	root = am5.Root.new("chartdiv");
-	 root._logo.dispose();
+	root._logo.dispose();
 	root.setThemes([am5themes_Animated.new(root)]);
 
 	chart = root.container.children.push(am5map.MapChart.new(root, {
@@ -864,7 +872,7 @@ function updateLineNumbers() {
 function updateCode() {
 	let content = codebox.value;
 	codeBlock.textContent = content;
-
+	
 	updateLineNumbers();
 	highlightJS();
 }
@@ -895,7 +903,7 @@ codebox.addEventListener('keydown', (e) => {
 			selectionEnd,
 			value
 		} = codebox;
-		const spaces = "  ";
+		const spaces = "	";
 		codebox.value = value.substring(0, selectionStart) + spaces + value.substring(selectionEnd);
 		codebox.selectionStart = codebox.selectionEnd = selectionStart + spaces.length;
 	}
@@ -922,7 +930,7 @@ function setTheme() {
 
 	let rules;
 	try {
-		  rules = Array.from(sheet.cssRules || sheet.rules);
+		rules = Array.from(sheet.cssRules || sheet.rules);
 	} catch (e) {
 		console.warn("Access to stylesheet denied (CORS issue or not loaded yet)");
 		return;
@@ -940,7 +948,7 @@ function setTheme() {
 	if (hljs) {
 		const bgColor = hljs.backgroundColor || hljs.background;
 		if (bgColor) r.style.setProperty("--bg", bgColor);
-
+		
 		const txtColor = hljs.color || (subst ? subst.color : null);
 		if (txtColor) r.style.setProperty("--txt", txtColor);
 	}
@@ -976,7 +984,7 @@ document.getElementById("selectLanguage").addEventListener("change", function() 
 		document.getElementById("preview-window").style.display = "block";
 
 		if (!hasSavedContent) {
-			codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title</title>\n<style>\n</style>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n<script>\n<\/script>\n</body>\n</html>';
+			codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title</title>\n<style>\n</style>\n</head>\n<body>\n	<h1>Hello, World!</h1>\n<script>\n<\/script>\n</body>\n</html>';
 		}
 	} else if (selectedIndex === 1) {
 		document.getElementById("preview-window").style.display = "none";
@@ -1011,10 +1019,7 @@ function runEditor() {
 	}
 }
 
-codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title goes here</title>\n<style>\n /* CSS goes here */\n</style>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n<script>\n  // JS goes here\n<\/script>\n</body>\n</html>';
-
-runEditor();
-updateCode();
+codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title goes here</title>\n<style>\n /* CSS goes here */\n</style>\n</head>\n<body>\n	<h1>Hello, World!</h1>\n<script>\n	// JS goes here\n<\/script>\n</body>\n</html>';
 
 // Python editor
 
@@ -1319,12 +1324,9 @@ function generateAllSections(filter = "") {
 		section.appendChild(buttonsContainer);
 		container.appendChild(section);
 	});
-}
 
-document.addEventListener("DOMContentLoaded", function() {
-	generateAllSections();
 	load("[ OK ] Games loaded");
-});
+}
 
 // Telescope
 
@@ -1340,8 +1342,6 @@ function setRandomBackground() {
 	load("[ OK ] GLAZ-1 Orbital Telescope connected");
 }
 
-window.onload = setRandomBackground;
-
 function toggleBackground() {
 	bg.classList.toggle("invisible");
 
@@ -1354,68 +1354,40 @@ function toggleBackground() {
 
 // Radio and YouTube
 
-const songData = [{
-		id: "Z3Ia6vV9pXk",
-		title: "ППК - Воскрешение"
-	},
-	{
-		id: "G0HsHQe-dT4",
-		title: "Gummy Boy - Don't Leave"
-	},
-	{
-		id: "ZG5NA8Ni7Ns",
-		title: "PRNRML - Загадка 1"
-	},
-	{
-		id: "d5HQdXkkfso",
-		title: "Зодиак - Зодиак"
-	},
-	{
-		id: "rQ6J2Qf2MXA",
-		title: "Творожное озеро - Гроза (vwqp remix)"
-	},
-	{
-		id: "UV06-kggQpg",
-		title: "Dmitriy Ivankov - Phobos"
-	},
-	{
-		id: "mkUOEQZwCaI",
-		title: "Наукоград - Время"
-	},
-	{
-		id: "ve81BNWbC5s",
-		title: "Priroda - 8080"
-	},
-	{
-		id: "fOlCt6pVUwY",
-		title: "NTorchestra - Млечными путями в Прекрасное далеко"
-	}
+const songData = [
+	{ filename: "resurrection.mp3", title: "ППК - Воскрешение" },
+	{ filename: "dont_leave.mp3", title: "Gummy Boy - Don't Leave" },
+	{ filename: "zagadka.mp3", title: "PRNRML - Загадка 1" },
+	{ filename: "zodiak.mp3", title: "Зодиак - Зодиак" },
+	{ filename: "groza.mp3", title: "Творожное озеро - Гроза" },
+	{ filename: "phobos.mp3", title: "Dmitriy Ivankov - Phobos" },
+	{ filename: "vremya.mp3", title: "Наукоград - Время" },
+	{ filename: "8080.mp3", title: "Priroda - 8080" },
+	{ filename: "mlechnymi_putyami_v_prekrasnoye_daleko.mp3", title: "NTorchestra - Млечными путями" }
 ];
 
-let radioPlayer;
-let searchPlayer;
+const audioBaseUrl = "https://raw.githack.com/HoujenHuang/TERMINAL/main/static/";
+
+let radioPlayer = new Audio();
+let searchPlayer = null;
+let currentSongIndex = -1;
 
 function getRandomSong() {
 	return songData[Math.floor(Math.random() * songData.length)];
 }
 
-function onYouTubeIframeAPIReady() {
-	const firstSong = getRandomSong();
+function playNewRadioSong() {
+	const song = getRandomSong();
+	radioPlayer.src = audioBaseUrl + song.filename;
+	updateTitleDisplay(song.title);
+	radioPlayer.play().catch(e => console.log("Autoplay prevented or file missing"));
+}
 
-	radioPlayer = new YT.Player("radioPlayer", {
-		height: "0",
-		width: "0",
-		videoId: firstSong.id,
-		playerVars: {
-			"autoplay": 1,
-			"controls": 0
-		},
-		events: {
-			"onReady": (e) => updateTitleDisplay(firstSong.title),
-			"onStateChange": onRadioStateChange
-		}
-	});
+radioPlayer.addEventListener('ended', () => {
+	playNewRadioSong();
+});
 
+window.onYouTubeIframeAPIReady = function() {
 	searchPlayer = new YT.Player("mainVideoDisplay", {
 		height: "360",
 		width: "640",
@@ -1424,24 +1396,41 @@ function onYouTubeIframeAPIReady() {
 			"onStateChange": onSearchPlayerStateChange
 		}
 	});
-}
+};
 
-function onRadioStateChange(event) {
-	if (event.data === YT.PlayerState.ENDED) {
-		const nextSong = getRandomSong();
-		radioPlayer.loadVideoById(nextSong.id);
-		updateTitleDisplay(nextSong.title);
-	}
-}
+(function loadYoutubeAPI() {
+	var tag = document.createElement('script');
+	tag.src = "https://www.youtube.com/iframe_api";
+	var firstScriptTag = document.getElementsByTagName('script')[0];
+	firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+})();
 
 function onSearchPlayerStateChange(event) {
 	if (event.data === YT.PlayerState.PLAYING) {
-		radioPlayer.pauseVideo();
+		radioPlayer.pause();
 		document.getElementById("playBtn").textContent = "> PLAY";
 	} else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
-		radioPlayer.playVideo();
+		radioPlayer.play();
 		document.getElementById("playBtn").textContent = "> PAUSE";
 	}
+}
+
+function togglePlayback() {
+	const btn = document.getElementById("playBtn");
+	if (radioPlayer.paused) {
+		if (searchPlayer && searchPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+			searchPlayer.pauseVideo();
+		}
+		radioPlayer.play();
+		btn.textContent = "> PAUSE";
+	} else {
+		radioPlayer.pause();
+		btn.textContent = "> PLAY";
+	}
+}
+
+function updateTitleDisplay(title) {
+	document.getElementById("songTitle").textContent = `NOW PLAYING: ${title}`;
 }
 
 const searchBtn = document.getElementById("youtubeSearch");
@@ -1451,81 +1440,55 @@ async function searchVideos() {
 	const query = document.getElementById("query").value;
 	if (!query) return alert("Enter a search term");
 
-	const resultsDiv = document.getElementById("results");
-	resultsDiv.innerHTML = "Searching...";
-
 	const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${query}&type=video&key=${CONFIG.YOUTUBE_API_KEY}`;
 
 	try {
 		const response = await fetch(url);
 		const data = await response.json();
-		if (data.items) {
-			displayResults(data.items);
-		} else {
-			resultsDiv.innerHTML = "No results found. Check your API key.";
-		}
+		displayResults(data.items);
 		document.getElementById("videoDisplay").style.display = "none";
 	} catch (e) {
-		resultsDiv.innerHTML = "ERROR: " + e;
+		document.getElementById("results").textContent = "ERROR: " + e;
 	}
 }
 
 function displayResults(videos) {
 	const resultsDiv = document.getElementById("results");
-	resultsDiv.innerHTML = "";
-
+	resultsDiv.textContent = "";
 	videos.forEach(video => {
-		const { title, thumbnails, channelTitle } = video.snippet;
+		const {
+			title,
+			thumbnails,
+			channelTitle
+		} = video.snippet;
 		const videoId = video.id.videoId;
 
 		const card = document.createElement("div");
 		card.className = "video-card";
-
 		card.innerHTML = `
-			<img src="${thumbnails.medium.url}" alt="${title}" style="width:100%">
-			<p><b>${title}</b></p>
-			<span>${channelTitle}</span>
-		`;
+	 <img src="${thumbnails.medium.url}" alt="${title}">
+	 <p>${title}</p>
+	 <span>${channelTitle}</span>
+	 `;
 
 		card.onclick = () => {
-			const videoDisplay = document.getElementById("videoDisplay");
-			videoDisplay.style.display = "block";
-			videoDisplay.classList.remove("invisible");
-
-			document.getElementById("playingTitle").innerText = title;
-
-			if (searchPlayer && typeof searchPlayer.loadVideoById === "function") {
-				searchPlayer.loadVideoById(videoId);
-			} else {
-				searchPlayer = new YT.Player("mainVideoDisplay", {
-					height: "360",
-					width: "640",
-					videoId: videoId
-				});
-			}
-
-			videoDisplay.scrollIntoView({ behavior: "smooth" });
-		};
+	if (!searchPlayer || typeof searchPlayer.loadVideoById !== 'function') {
+		alert("Video player is still loading, please wait...");
+		return;
+	}
+	document.getElementById("videoDisplay").style.display = "block";
+	document.getElementById("playingTitle").innerText = title;
+	searchPlayer.loadVideoById(videoId);
+	const vid = document.getElementById("videoDisplay");
+	vid.scrollIntoView({ behavior: "smooth" });
+};
 		resultsDiv.appendChild(card);
 	});
 }
 
-function togglePlayback() {
-	const btn = document.getElementById("playBtn");
-	if (radioPlayer.getPlayerState() !== YT.PlayerState.PLAYING) {
-		radioPlayer.playVideo();
-		btn.textContent = "> PAUSE";
-	} else {
-		radioPlayer.pauseVideo();
-		btn.textContent = "> PLAY";
-	}
-}
-
-function updateTitleDisplay(title) {
-	document.getElementById("songTitle").textContent = `NOW PLAYING: ${title}`;
-}
-
 // Loading screen
+
+let splashStarted = false;
 
 function load(msg) {
 	const newItem = document.createElement("li");
@@ -1533,10 +1496,13 @@ function load(msg) {
 
 	newItem.textContent = msg;
 	document.getElementById("outputList").appendChild(newItem);
+	setTimeout(startSplash, 1000);
+}
 
-	window.addEventListener("load", (event) => {
-		setTimeout(showSplash, 500)
-	});
+function startSplash() {
+	if (splashStarted) return;
+	splashStarted = true;
+	setTimeout(showSplash, 500);
 }
 
 function showSplash() {
