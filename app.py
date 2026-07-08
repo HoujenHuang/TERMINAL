@@ -73,12 +73,14 @@ def proxy():
 		resp = requests.get(target_url, headers=headers, impersonate="chrome110")
 
 		excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
-		headers = [(name, value) for (name, value) in resp.raw.headers.items()
-				   if name.lower() not in excluded_headers]
 
-		return Response(resp.content, resp.status_code, headers)
+		response_headers = [(name, value) for (name, value) in resp.headers.items()
+						   if name.lower() not in excluded_headers]
+
+		return Response(resp.content, resp.status_code, response_headers)
+
 	except Exception as e:
-		return jsonify({"error": "Failed to proxy request", "details": str(e)}), 500
+		return f"ERROR: Proxy request failed: {str(e)}", 502
 
 if __name__ == "__main__":
 	port = int(os.environ.get("PORT", 8080))
