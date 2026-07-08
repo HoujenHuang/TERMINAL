@@ -1,6 +1,5 @@
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
-import requests
 import os
 import psutil
 from urllib.parse import urlparse
@@ -78,6 +77,8 @@ def proxy():
 				   if name.lower() not in excluded_headers]
 
 		return Response(resp.content, resp.status_code, headers)
+	except Exception as e:
+		return jsonify({"error": "Failed to proxy request", "details": str(e)}), 500
 
 if __name__ == "__main__":
 	port = int(os.environ.get("PORT", 8080))
