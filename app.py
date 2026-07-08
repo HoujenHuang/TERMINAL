@@ -5,6 +5,7 @@ import os
 import psutil
 from urllib.parse import urlparse
 import ipaddress
+from curl_cffi import requests
 
 app = Flask(__name__)
 
@@ -50,7 +51,7 @@ def proxy():
 	target_url = request.args.get('url')
 	if not target_url:
 		return "ERROR: No URL provided", 400
-	
+
 	if not target_url.startswith("http"):
 		target_url = "https://" + target_url
 
@@ -59,21 +60,24 @@ def proxy():
 
 	try:
 		headers = {
-			'User-Agent': request.headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'),
-			'Accept-Language': request.headers.get('Accept-Language', 'en-US,en;q=0.9'),
-			'Referer': target_url
+			'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+			'Accept-Language': 'en-US,en;q=0.9',
+			'Referer': 'https://www.google.com/',
+			'Connection': 'keep-alive',
+			'Upgrade-Insecure-Requests': '1',
+			'Sec-Fetch-Dest': 'document',
+			'Sec-Fetch-Mode': 'navigate',
+			'Sec-Fetch-Site': 'cross-site',
 		}
 
-		resp = requests.get(target_url, headers=headers, timeout=10, stream=True)
+		resp = requests.get(target_url, headers=headers, impersonate="chrome110")
+
 		excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
 		headers = [(name, value) for (name, value) in resp.raw.headers.items()
 				   if name.lower() not in excluded_headers]
+
 		return Response(resp.content, resp.status_code, headers)
-		
-	except requests.exceptions.Timeout:
-		return "ERROR: Request timed out", 504
-	except Exception as e:
-		return f"ERROR: {str(e)}", 500
 
 if __name__ == "__main__":
 	port = int(os.environ.get("PORT", 8080))
