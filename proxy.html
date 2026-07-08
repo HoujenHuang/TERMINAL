@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Proxy Terminal</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #nav-bar {
+            background-color: #1e1e1e;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #333;
+        }
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #252526;
+            color: white;
+            outline: none;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007acc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #005f9e;
+        }
+        #status {
+            font-size: 0.8em;
+            color: #888;
+            padding: 5px 20px;
+        }
+        #frame-container {
+            flex-grow: 1;
+            background-color: white;
+            margin: 10px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="nav-bar">
+    <strong>PROXY:</strong>
+    <input type="text" id="urlInput" placeholder="Enter URL (e.g., example.com)" onkeydown="if(event.key==='Enter') loadPage()">
+    <button onclick="loadPage()">Go</button>
+</div>
+
+<div id="status">Backend: Connecting...</div>
+
+<div id="frame-container">
+    <iframe id="proxyFrame" sandbox="allow-forms allow-scripts allow-same-origin"></iframe>
+</div>
+
+<script>
+    const BACKEND_URL = "https://terminal-941307900976.us-east5.run.app";
+
+    const statusEl = document.getElementById('status');
+    const frame = document.getElementById('proxyFrame');
+
+    async function checkStatus() {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/`);
+            const data = await resp.json();
+            statusEl.innerText = `Backend: ${data.status}`;
+        } catch (err) {
+            statusEl.innerText = "Backend: Offline or CORS Error";
+            statusEl.style.color = "#ff5555";
+        }
+    }
+
+    async function loadPage() {
+        const url = document.getElementById('urlInput').value.trim();
+        if (!url) return;
+
+        statusEl.innerText = "Loading...";
+        
+        const proxyUrl = `${BACKEND_URL}/proxy?url=${encodeURIComponent(url)}`;
+
+        try {
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error('Network response was not ok');
+
+            let text = await response.text();
+
+            const baseTag = `<base href="${url.startsWith('http') ? url : 'https://' + url}">`;
+            text = text.replace('<head>', '<head>' + baseTag);
+
+            const blob = new Blob([text], { type: 'text/html' });
+            const contentUrl = URL.createObjectURL(blob);
+
+            frame.src = contentUrl;
+            statusEl.innerText = `Loaded: ${url}`;
+
+            
+        } catch (error) {
+            console.error("Fetch error:", error);
+            statusEl.innerText = "Error: Could not load the page.";
+        }
+    }
+
+    checkStatus();
+</script>
+
+</body>
+</html>
