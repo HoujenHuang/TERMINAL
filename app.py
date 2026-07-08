@@ -9,7 +9,7 @@ from curl_cffi import requests
 
 app = Flask(__name__)
 
-CORS(app, resources={r"/proxy": {"origins": "*"}}) 
+CORS(app, resources={r"/*": {"origins": ["https://glasspane.pages.dev", "http://localhost:3000"]}})
 
 BLOCKED_NETWORKS = [
 	ipaddress.ip_network('169.254.169.254/32'),
