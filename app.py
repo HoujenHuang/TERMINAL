@@ -59,8 +59,12 @@ def proxy():
 		)
 
 		excluded_headers = [
-			'content-encoding', 'content-length', 'transfer-encoding', 
-			'connection', 'server', 'x-frame-options' 
+			'content-encoding', 
+			'content-length', 
+			'transfer-encoding', 
+			'connection',
+			'x-frame-options',
+			'content-security-policy'
 		]
 
 		response_headers = [
