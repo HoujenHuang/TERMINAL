@@ -9,7 +9,7 @@ from curl_cffi import requests
 
 app = Flask(__name__)
 
-CORS(app, resources={r"/*": {"origins": ["https://glasspane.pages.dev", "http://localhost:3000"]}})
+CORS(app, resources={r"/*": {"origins": "https://glasspane.pages.dev", "http://localhost:3000"}})
 
 BLOCKED_NETWORKS = [
 	ipaddress.ip_network('169.254.169.254/32'),
@@ -24,13 +24,10 @@ def is_safe_url(url):
 		parsed = urlparse(url)
 		if parsed.scheme not in ('http', 'https'):
 			return False
-
 		hostname = parsed.hostname
 		if not hostname: return False
-
 		resolved_ip = socket.gethostbyname(hostname)
 		ip = ipaddress.ip_address(resolved_ip)
-		
 		for network in BLOCKED_NETWORKS:
 			if ip in network:
 				return False
@@ -40,7 +37,8 @@ def is_safe_url(url):
 
 @app.route("/")
 def home():
-	return jsonify({"status": "Proxy Active"})
+	cpu = psutil.cpu_percent()
+	return jsonify({"status": "Backend active", "cpu_usage": f"{cpu}%"})
 
 @app.route("/proxy")
 def proxy():
@@ -52,19 +50,11 @@ def proxy():
 		return "ERROR: Restricted or invalid URL", 403
 
 	try:
-		resp = requests.get(
-			target_url, 
-			impersonate="chrome110",
-			timeout=10
-		)
+		resp = requests.get(target_url, impersonate="chrome120", timeout=15)
 
 		excluded_headers = [
-			'content-encoding', 
-			'content-length', 
-			'transfer-encoding', 
-			'connection',
-			'x-frame-options',
-			'content-security-policy'
+			'content-encoding', 'content-length', 'transfer-encoding', 
+			'connection', 'x-frame-options', 'content-security-policy'
 		]
 
 		response_headers = [
@@ -75,7 +65,8 @@ def proxy():
 		return Response(resp.content, resp.status_code, response_headers)
 
 	except Exception as e:
-		return f"Proxy Error: {str(e)}", 502
+		return f"ERROR: Proxy request failed: {str(e)}", 502
 
 if __name__ == "__main__":
-	app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+	port = int(os.environ.get("PORT", 8080))
+	app.run(host="0.0.0.0", port=port)
