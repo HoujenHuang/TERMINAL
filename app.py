@@ -10,9 +10,9 @@ from curl_cffi import requests
 app = Flask(__name__)
 
 CORS(app, resources={r"/*": {"origins": [
-    "https://glasspane.pages.dev", 
-    "http://localhost:3000",
-    "null"
+	"https://glasspane.pages.dev", 
+	"http://localhost:3000",
+	"null"
 ]}})
 
 BLOCKED_NETWORKS = [
@@ -54,7 +54,30 @@ def proxy():
 		return "ERROR: Restricted or invalid URL", 403
 
 	try:
-		resp = requests.get(target_url, impersonate="chrome120", timeout=15)
+		proxies = {
+			"http": "http://username:password@proxy_host:port",
+			"https": "http://username:password@proxy_host:port"
+		}
+
+		headers = {
+			"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.9",
+			"Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="120", "Chromium";v="120"',
+			"Sec-Ch-Ua-Mobile": "?0",
+			"Sec-Ch-Ua-Platform": '"Windows"',
+			"Sec-Fetch-Dest": "document",
+			"Sec-Fetch-Mode": "navigate",
+			"Sec-Fetch-Site": "none",
+			"Sec-Fetch-User": "?1",
+			"Upgrade-Insecure-Requests": "1"
+		}
+
+		resp = requests.get(
+			target_url, 
+			impersonate="chrome120", 
+			headers=headers, 
+			timeout=15
+		)
 
 		excluded_headers = [
 			'content-encoding', 'content-length', 'transfer-encoding', 
