@@ -3,7 +3,505 @@
 	<meta charset="utf-8" name="referrer">
 	<title>The TERMINAL</title>
 	<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 600'%3E%3Cstyle%3Etext %7B font-family: monospace%3B font-size: 100px%3B dominant-baseline: hanging%3B white-space: pre%3B %7D%3C/style%3E%3Ctext y='0' fill='black'%3E████████╗%3C/text%3E%3Ctext y='100' fill='black'%3E╚══██╔══╝%3C/text%3E%3Ctext y='200' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='300' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='400' fill='black'%3E   ██║   %3C/text%3E%3Ctext y='500' fill='black'%3E   ╚═╝   %3C/text%3E%3C/svg%3E">
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
+	<style>
+/* Basic styling */
+* {
+	box-sizing: border-box;
+	padding: 0;
+	text-shadow: 0 0 5px var(--txt);
+}
+
+:root {
+	--theme: rgb(51, 255, 51);
+	--bg: rgb(0, 0, 0);
+	--txt: rgb(51, 255, 51);
+}
+
+body {
+	background-color: var(--bg);
+	height: 100vh;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	text-shadow: 0 0 5px var(--txt);
+	background-attachment: fixed;
+	margin: 0;
+	padding: 5px;
+	overflow: hidden;
+}
+
+.flicker {
+	animation: flicker 0.1s infinite;
+}
+
+@keyframes flicker {
+	0%, 100% { opacity: 0.95; }
+	50% { opacity: 1; }
+}
+
+b { color: var(--theme); }
+
+a { color: var(--theme); }
+
+.stdout { list-style-type: none; }
+
+.invisible { display: none; }
+
+/* Fade in animation for the splash screen */
+#splashText {
+	font-family: 'Courier New', Courier, monospace !important;
+	line-height: 0.6 !important;
+	white-space: pre;
+	display: inline-block;
+	text-align: center;
+	letter-spacing: 0px !important;
+}
+
+.fade-in {
+	animation: fadeIn 1s ease-in forwards;
+}
+
+@keyframes fadeIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+/* Textbox flexing. I've spent so much time on this, please help */
+.flexbox {
+	display: flex;
+}
+
+.flexbox .stretch {
+	flex: 1;
+}
+
+.flexbox .normal {
+	flex: 0;
+}
+
+.flexbox div input {
+	field-sizing: content;
+	width: 100%;
+	background-color: transparent;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	line-height: 1.2;
+	caret-shape: block;
+	border: none;
+	padding: 0;
+	outline: none;
+}
+
+.flexbox div span {
+	white-space: nowrap;
+}
+
+/* A lot of inputs */
+input[type="number"] {
+	width: 4vw;
+	background-color: transparent;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	caret-shape: block;
+	border: none;
+	padding: 0;
+	outline: none;
+}
+
+input[type="button"], button {
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	width: 100%;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+	text-align: left;
+	padding: 0px;
+}
+
+input[type="button"]:hover, button:hover {
+	background: var(--txt);
+	color: var(--bg);
+}
+
+/* Button that expands the sidepanels */
+.sideBtn {
+	width: 1vw;
+	transition: 0.5s;
+}
+
+/* Headers for the games */
+.letter-header {
+	color: var(--txt);
+	font-weight: bold;
+	padding: 5px 0 5px 0;
+}
+
+.file-size {
+	float: right;
+}
+
+/* Containers */
+.container {
+	display: flex;
+	width: 100%;
+	height: 100%;
+	filter: url(#chromatic-aberration) url(#glitch);
+	box-sizing: border-box;
+}
+
+.container::before {
+	content: "";
+	background-image: var(--bg-image, none);
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: contain;
+	position: fixed;
+	z-index: -1;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	left: 0;
+	margin: 25px;
+	opacity: .1;
+}
+
+#container.crt-off {
+	filter: none;
+}
+
+.split-container {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	width: 0%;
+	transition: 0.5s;
+}
+
+.split {
+	flex: 1;
+	margin: 5px;
+	padding: 5px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+}
+
+.mini-info-container {
+	display: flex;
+	flex-direction: row;
+	margin: 5px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+}
+
+.mini-info {
+	flex: 1;
+	margin: 5px;
+}
+
+.terminal-container {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden; 
+}
+
+.terminal {
+	flex: 1;
+	position: relative;
+	overflow-y: auto;
+	overflow-x: hidden;
+	margin: 5px; 
+	padding: 10px;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+	box-sizing: border-box;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: color-mix(in srgb, var(--theme), transparent 50%);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--theme);
+}
+
+/* YouTube and whatnot */
+.video-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 5px;
+	margin-top: 5px;
+}
+
+.video-card {
+	cursor: pointer;
+	padding: 10px;
+	border-radius: 5px;
+	transition: 0.5s;
+}
+
+.video-card:hover {
+	background: color-mix(in srgb, var(--theme), transparent 80%);
+}
+
+.video-card img {
+	width: 100%;
+	border-radius: 5px;
+}
+
+.video-card p {
+	margin: 10px 0 5px;
+	font-weight: bold;
+}
+
+iframe {
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	border: none;
+}
+
+.iframe-container {
+	flex: 1;
+	position: relative;
+	overflow: scroll;
+	overflow-x: hidden;
+	margin: 5px;
+	border: 2px solid var(--theme);
+}
+
+.iframe-container::-webkit-scrollbar {
+	display: none;
+}
+
+/* Graphs */
+canvas {
+	width: 100%;
+}
+
+/* Proxy */
+#nav-bar {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	box-sizing: border-box;
+	padding: 5px;
+}
+
+#nav-bar button {
+	width: 20px;
+	text-align: center;
+}
+
+#url-bar {
+	flex: 1;
+	margin: 0 5px;
+	background-color: transparent;
+	color: var(--txt);
+	font: 1vw "Courier New", monospace;
+ 	caret-shape: block;
+	border: none;
+	outline: none;
+}
+
+#url-bar::placeholder {
+	color: var(--txt);
+}
+
+#viewport {
+	flex: 1;
+	width: 100%;
+	height: calc(100% - 4vw);
+	border: none;
+}
+
+/* Button that runs HTML in the editor */
+.html-btn {
+	width: 20%;
+	background: var(--theme);
+	color: var(--bg);
+	margin: 5px 0;
+}
+
+/* The actual editor */
+#preCode code, textarea, #lineNumbers, .lineNumbers {
+	font-family: "Courier New", monospace;
+	font-size: 1vw;
+	line-height: 1.2;
+}
+
+#divCodeWrapper {
+	height: 50vh;
+	width: 50vw;
+	overflow: hidden;
+	border: 2px solid var(--theme);
+	box-shadow: 0 0 5px var(--theme);
+	position: relative;
+	text-shadow: none;
+}
+
+#preCode {
+	height: calc(100% + 30px);
+	width: 100%;
+	position: absolute;
+	top: 0;
+	left: 50px;
+	overflow: hidden;
+	padding: 0;
+	margin: 0;
+	background: #1b1b1b;
+	border: none;
+	text-shadow: none;
+}
+
+#preCode code {
+	padding: 15px;
+	height: calc(100% - 30px);
+	width: calc(100% - 30px);
+	overflow-y: scroll;
+	overflow-x: auto;
+}
+
+#preCode span {
+	text-shadow: none;
+}
+
+textarea {
+	overflow-y: scroll;
+	white-space: nowrap;
+	padding: 15px;
+	background-color: var(--bg);
+	color: var(--txt);
+	caret-color: white;
+	border: 2px solid var(--theme);
+	outline: none;
+	resize: none;
+	outline: none;
+}
+
+#codebox {
+	position: absolute;
+	top: 0;
+	left: 50px;
+	height: 100%;
+	width: calc(100% - 50px);
+	padding-left: 13px;
+	z-index: 2;
+	background-color: rgba(0, 0, 0, 0);
+	color: rgba(0, 0, 0, 0);
+	border: none;
+	border-left: 2px solid var(--theme);
+	text-shadow: none;
+}
+
+#lineNumbers {
+	position: absolute;
+	top: 0;
+	left: 0;
+	padding: 15px 5px;
+	height: calc(100% - 30px);
+	width: 100px;
+	overflow: hidden;
+}
+
+/* Dropdown menus */
+select, ::picker(select) {
+	appearance: base-select;
+}
+
+select {
+	font-size: 1vw;
+	font-family: "Courier New", monospace;
+	margin: 0;
+	background-color: none;
+	color: var(--theme);
+	border: none;
+	outline: none;
+}
+
+option {
+	font-size: 1vw;
+	font-family: "Courier New", monospace;
+	margin: 0;
+	background-color: var(--bg);
+	color: var(--theme);
+	text-shadow: none;
+	border: none;
+	outline: none;
+}
+
+option:hover {
+	background: var(--theme);
+	color: var(--bg);
+}
+
+/* Gives that terminal the 90s effects */
+.scanline {
+	content: "";
+	position: fixed;
+	pointer-events: none;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: repeating-linear-gradient(
+		to bottom,
+		transparent 0,
+		transparent 1px,
+		rgba(0, 0, 0, .2) 2px,
+		rgba(0, 0, 0, .2) 4px
+	)
+}
+
+.glowline {
+	width: 100%;
+	height: 100px;
+	z-index: 1;
+	background: linear-gradient(
+		0deg,
+		rgba(0, 0, 0, 0) 0%,
+		rgba(255, 255, 255, 1) 10%,
+		rgba(0, 0, 0, 0.1) 100%
+	);
+	pointer-events: none;
+	position: fixed;
+	bottom: 100%;
+	left: 0;
+	animation: scan 6s linear infinite;
+}
+
+@keyframes scan {
+	0% { bottom: 100%; opacity: 0.1; }
+	80% { bottom: 100%; opacity: 0.1; }
+	100% { bottom: 0%; opacity: 0; }
+}
+
+.bg {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100vh;
+	z-index: -1;
+	background-size: cover;
+	background-position: center;
+	opacity: 0;
+}
+
+.fade-in-bg {
+	animation: fade-in-bg 1s ease-in forwards;
+}
+
+@keyframes fade-in-bg {
+	from { opacity: 0; }
+	to { opacity: 0.25; }
+}
+	</style>
 
 	<!-- Fonts -->
 	<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,6 +516,7 @@
 	<script src="https://cdn.amcharts.com/lib/5/map.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/geodata/worldLow.js"></script>
 	<script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.js"></script>
 	<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
 </head>
@@ -95,7 +594,7 @@
 					<!-- Stdout -->
 					<div id="stdout">
 						Type 'help' to see list of available commands<br>
-						Type Esc key to return to home directory<br><br>
+						Type Ctrl + C to exit current program<br><br>
 					</div>
 
 					<!-- Games -->
@@ -178,7 +677,7 @@
 						B <input type="number" id="txt-b" value="51" min="0" max="255"><br><br>
 
 						<b>Fonts</b><br><br>
-						<select id="fontSelect" style="color: var(--txt); border: 1px solid var(--theme);">
+						<select id="fontSelect" style="color: var(--txt);">
 							<option value="Courier New" style="font-family: Courier New">Courier New</option>
 							<option value="Anonymous Pro" style="font-family: Anonymous Pro">Anonymous Pro</option>
 							<option value="Courier Prime" style="font-family: Courier Prime">Courier Prime</option>
@@ -242,27 +741,25 @@
 					</div>
 				</div>
 
-				<!-- Chernobyl simulation -->
-				<div id="chernobyl" style="display:none; margin:5px;">
-					<div id="aim"></div>
-					<div class="grid">
-						<div>
-							<canvas id="chCanvas" width="400" height="220"></canvas>
-							<div id="status2"></div>
-							<div id="DEBUG"></div>
-						</div>
-						<div id="chCommand" style="width:100%; height:100%; padding:5px; border:2px solid var(--theme);">
-							<div id="chStdout">In order to proceed, you must operate the Chernobyl Nuclear Power Plant.<br>Type 'help' to see list of available commands<br></div>
+				<div id="proxy" class="program iframe-container invisible">
+					<form id="nav-bar">
+						<button type="button" id="back-btn">&larr;</button>
+						<button type="button" id="fwd-btn">&rarr;</button>
+						<button type="button" id="reload-btn">&#x21bb;</button>
+						<input type="text" id="url-bar" placeholder="Enter URL or search query..." required autocomplete="off" />
+						<button type="submit" id="go-btn" disabled>Go</button>
+					</form>
 
-							<section class="flexbox">
-								<div class="normal">
-									<b><span class="user">guest</span>@terminal:~$</b>&nbsp;
-								</div>
-								<div class="stretch">
-									<input id="chStdin" type="text" autocomplete="off">
-								</div>
-							</section>
-						</div>
+					<iframe id="viewport" sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-downloads"></iframe>
+
+					<div style="margin-left: 5px;">
+						<b id="proxy-status">Loading...</b>
+
+						| Routing:
+						<select id="route-select">
+							<option value="direct">Direct (Clearnet)</option>
+							<option value="tor">Tor Network</option>
+						</select>
 					</div>
 				</div>
 
@@ -498,6 +995,10 @@
 				<div class="label"><b>NETWORK SPEED:</b> <span id="speedText">Calculating...</span></div>
 				<canvas id="speedChart"></canvas>
 			</div>
+
+			<div class="mini-info-container">
+				<button onclick="goFullscreen()" style="width: 10%; text-align: center;">&#x26F6;</button>
+			</div>
 		</div>
 	</div>
 
@@ -528,7 +1029,1814 @@
 			<feBlend in="red-green" in2="blue-shift" mode="screen" />
 		</filter>
 	</svg>
-	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/script.js"></script>
+<script>
+// Radio configuration & initialization (moved up to avoid TDZ)
+const songData = [
+	{ filename: "resurrection.mp3", title: "ППК - Воскрешение" },
+	{ filename: "dont_leave.mp3", title: "Gummy Boy - Don't Leave" },
+	{ filename: "zagadka.mp3", title: "PRNRML - Загадка 1" },
+	{ filename: "zodiak.mp3", title: "Зодиак - Зодиак" },
+	{ filename: "groza.mp3", title: "Творожное озеро - Гроза" },
+	{ filename: "phobos.mp3", title: "Dmitriy Ivankov - Phobos" },
+	{ filename: "vremya.mp3", title: "Наукоград - Время" },
+	{ filename: "8080.mp3", title: "Priroda - 8080" },
+	{ filename: "mlechnymi_putyami_v_prekrasnoye_daleko.mp3", title: "NTorchestra - Млечными путями" }
+];
+
+const audioBaseUrl = "https://raw.githack.com/HoujenHuang/TERMINAL/main/static/";
+let radioPlayer = new Audio();
+let searchPlayer = null;
+let currentSongIndex = -1;
+
+function getRandomSong() {
+	return songData[Math.floor(Math.random() * songData.length)];
+}
+
+function playNewRadioSong() {
+	const song = getRandomSong();
+	radioPlayer.src = audioBaseUrl + song.filename;
+	updateTitleDisplay(song.title);
+	radioPlayer.play().catch(e => console.log("Autoplay prevented or file missing"));
+}
+
+radioPlayer.addEventListener('ended', () => {
+	playNewRadioSong();
+});
+
+var start = false;
+
+document.body.addEventListener("keyup", (event) => {
+	if (start === false) {
+		radioPlayer.volume = 0.5;
+		playNewRadioSong(); 
+
+		load("[ OK ] DOM fully loaded");
+		document.body.classList.add("flicker");
+
+		setTimeout(() => {
+			displayTime();
+			displayDate();
+			updateTimer();
+			checkBrowser();
+			checkFPS();
+			checkMemory();
+			checkSpeed();
+			checkBattery();
+			checkConnection();
+			fetchIPData();
+			am5.ready(initMap);
+			updateMarsWeatherTable();
+			generateAllSections();
+			runEditor();
+			updateCode();
+			setRandomBackground();
+		}, 500);
+
+		start = true;
+		graph();
+	}
+});
+
+function goFullscreen() {
+	if (!document.fullscreenElement) {
+		document.documentElement.requestFullscreen()
+	} else {
+		document.exitFullscreen();
+	}
+}
+
+// Battery saver
+let isActive = true;
+let isTabVisible = true;
+
+document.addEventListener("visibilitychange", () => {
+	isTabVisible = !document.hidden;
+});
+
+function toggleBatterySaver() {
+	isActive = !isActive;
+
+	if (!isActive) {
+		Object.values(charts).forEach(chart => {
+			const ctx = chart.el.getContext("2d");
+			ctx.clearRect(0, 0, chart.el.width, chart.el.height);
+		});
+		closeSide();
+	}
+}
+
+function shouldRun() {
+	return isActive && isTabVisible;
+}
+
+function graph() {
+	if (isActive === true && start === true) {
+		setInterval(displayTime, 1000);
+		setInterval(updateTimer, 1000);
+		setInterval(checkMemory, 1000);
+		setInterval(checkSpeed, 5000);
+	}
+}
+
+// Tab toggle
+const sideLeft = document.getElementById("leftTerminal");
+const sideRight = document.getElementById("rightTerminal");
+
+const btnLeft = document.getElementById("sideBtnLeft");
+const btnRight = document.getElementById("sideBtnRight");
+
+function closeSide() {
+	sideLeft.style.width = "0";
+	sideRight.style.width = "0";
+
+	btnLeft.style.opacity = "1";
+	btnRight.style.opacity = "1";
+	isActive = false;
+}
+
+function openSide() {
+	sideLeft.style.width = "50%";
+	sideRight.style.width = "50%";
+
+	btnLeft.style.opacity = "0";
+	btnRight.style.opacity = "0";
+	isActive = true;
+}
+
+// Time
+let isTimeInit = false;
+
+function displayTime() {
+	if (!shouldRun()) {
+		document.getElementById("clock").innerText = "00:00:00";
+		return;
+	}
+
+	const now = new Date();
+
+	let hours = now.getHours();
+	let minutes = now.getMinutes();
+	let seconds = now.getSeconds();
+
+	minutes = minutes < 10 ? "0" + minutes : minutes;
+	seconds = seconds < 10 ? "0" + seconds : seconds;
+
+	const timeString = hours + ":" + minutes + ":" + seconds;
+
+	document.getElementById("clock").innerText = timeString;
+
+	if (!isTimeInit) {
+		load(`[ OK ] Atomic Clock synced: ${timeString}`);
+		isTimeInit = true;
+	}
+}
+
+// Date
+function displayDate() {
+	const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+	const d = new Date();
+
+	let year = d.getFullYear();
+	document.getElementById("year").textContent = year;
+
+	let month = months[d.getMonth()];
+	document.getElementById("month").textContent = month;
+
+	let day = d.getDate();
+	document.getElementById("day").textContent = day;
+
+	load(`[ OK ] Terran Orbital Revolution synced: ${day} ${month} ${year}`);
+}
+
+// Uptime
+let isUptimeInit = false;
+
+let totalSeconds = 0;
+const timerElement = document.getElementById("timer");
+
+function updateTimer() {
+	if (!shouldRun()) {
+		timerElement.innerText = "00:00:00";
+		return;
+	}
+
+	totalSeconds++;
+
+	let hours = Math.floor(totalSeconds / 3600);
+	let minutes = Math.floor((totalSeconds % 3600) / 60);
+	let seconds = totalSeconds % 60;
+
+	let hDisplay = hours.toString().padStart(2, "0");
+	let mDisplay = minutes.toString().padStart(2, "0");
+	let sDisplay = seconds.toString().padStart(2, "0");
+
+	timerElement.textContent = `${hDisplay}:${mDisplay}:${sDisplay}`;
+
+	if (!isUptimeInit) {
+		load(`[ OK ] Uptime synced: ${hDisplay}:${mDisplay}:${sDisplay}`);
+		isUptimeInit = true;
+	}
+}
+
+// Browser
+function checkBrowser() {
+	const browser = document.getElementById("browser");
+	const userAgent = navigator.userAgent;
+
+	if (userAgent.includes("Chrome") && !userAgent.includes("Edg")) {
+		browser.textContent = "CHROME";
+		load(`[ OK ] Operating System fetched: ${userAgent}`);
+	} else if (userAgent.includes("Firefox")) {
+		browser.textContent = "FIREFOX ⚠";
+		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+	} else if (userAgent.includes("Safari") && !userAgent.includes("Chrome")) {
+		browser.textContent = "SAFARI ⚠";
+		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+	} else if (userAgent.includes("Edg")) {
+		browser.textContent = "EDGE";
+		load(`[ OK ] Operating System fetched: ${userAgent}`);
+	} else if (userAgent.includes("Opera") || userAgent.includes("OPR")) {
+		browser.textContent = "OPERA";
+		load(`[ OK ] Operating System fetched: ${userAgent}`);
+	} else if (userAgent.includes("MSIE") || userAgent.includes("Trident")) {
+		browser.textContent = "IE ⚠";
+		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+	} else {
+		browser.textContent = "UNKNOWN ⚠";
+		load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+	}
+}
+
+// Charts
+const charts = {
+	mem: {
+		el: document.getElementById("memChart"),
+		data: [],
+		max: 512,
+		text: document.getElementById("memText")
+	},
+	fps: {
+		el: document.getElementById("fpsChart"),
+		data: [],
+		max: 60,
+		text: document.getElementById("fpsText")
+	},
+	speed: {
+		el: document.getElementById("speedChart"),
+		data: [],
+		max: 100,
+		text: document.getElementById("speedText")
+	}
+};
+
+function drawGraph(key, value) {
+	const chart = charts[key];
+	if (!chart.el) return;
+	const ctx = chart.el.getContext("2d");
+	const { width, height } = chart.el;
+	const paddingX = 40;
+	const paddingY = 25;
+
+	const dynamicColor = getComputedStyle(document.documentElement).getPropertyValue("--txt").trim() || "white";
+
+	const timeStr = new Date().toLocaleTimeString("en-GB", { hour12: false });
+	chart.data.push({ val: value, time: timeStr });
+	if (chart.data.length > 50) chart.data.shift();
+
+	ctx.clearRect(0, 0, width, height);
+
+	ctx.strokeStyle = dynamicColor;
+	ctx.globalAlpha = 0.1;
+	ctx.lineWidth = 1;
+	ctx.beginPath();
+	for (let i = 0; i <= 4; i++) {
+		const y = (height - paddingY - 10) - (i / 4 * (height - paddingY - 30));
+		ctx.moveTo(paddingX, y);
+		ctx.lineTo(width, y);
+		const x = paddingX + (i / 4) * (width - paddingX - 10);
+		ctx.moveTo(x, 10);
+		ctx.lineTo(x, height - paddingY);
+	}
+	ctx.stroke();
+	ctx.globalAlpha = 1.0;
+
+	ctx.fillStyle = dynamicColor;
+	ctx.font = "12px 'Courier New'";
+	ctx.textAlign = "left";
+	ctx.fillText(Math.round(chart.max), 5, 15);
+	ctx.fillText("0", 5, height - paddingY - 5);
+
+	if (chart.data.length > 1) {
+		ctx.fillText(chart.data[0].time, paddingX, height - 5);
+		ctx.textAlign = "right";
+		ctx.fillText(chart.data[chart.data.length - 1].time, width - 5, height - 5);
+	}
+
+	ctx.beginPath();
+	ctx.strokeStyle = dynamicColor;
+	ctx.lineWidth = 2;
+	ctx.lineJoin = "round";
+
+	chart.data.forEach((point, i) => {
+		const x = paddingX + (i / (50 - 1)) * (width - paddingX - 10);
+		const y = (height - paddingY - 10) - (Math.min(point.val, chart.max) / chart.max * (height - paddingY - 30));
+		i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+	});
+	ctx.stroke();
+}
+
+// FPS
+let isFPSInit = false;
+let frames = 0, lastTime = performance.now();
+
+function checkFPS() {
+	if (!shouldRun()) {
+		requestAnimationFrame(checkFPS);
+		charts.fps.text.innerText = "Calculating...";
+		return;
+	}
+
+	frames++;
+	const now = performance.now();
+
+	if (now >= lastTime + 1000) {
+		const fps = Math.round((frames * 1000) / (now - lastTime));
+		charts.fps.text.innerText = `${fps} FPS`;
+		drawGraph("fps", fps);
+		frames = 0;
+		lastTime = now;
+	}
+	requestAnimationFrame(checkFPS);
+
+	if (!isFPSInit) {
+		load(`[ OK ] FPS fetched: ${Math.round((frames * 1000) / (now - lastTime))} FPS`);
+		isFPSInit = true;
+	}
+}
+
+// Memory
+let isMemoryInit = false;
+async function checkMemory() {}
+
+// Network speed
+let isSpeedInit = false;
+
+async function checkSpeed() {
+	if (!shouldRun()) {
+		charts.speed.text.innerText = "Calculating...";
+		return;
+	}
+
+	const imageAddr = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/A_Man_on_the_Moon%2C_AS11-40-5903_%28cropped%29.jpg/3840px-A_Man_on_the_Moon%2C_AS11-40-5903_%28cropped%29.jpg";
+	const downloadSizeInBytes = 3822654;
+
+	try {
+		const startTime = performance.now();
+
+		const response = await fetch(`${imageAddr}?n=${Math.random()}`, {
+			cache: "no-store"
+		});
+		await response.blob();
+
+		const endTime = performance.now();
+		const durationInSeconds = (endTime - startTime) / 1000;
+
+		const bitsLoaded = downloadSizeInBytes * 8;
+		const speedMbps = (bitsLoaded / (1024 * 1024)) / durationInSeconds;
+
+		if (speedMbps > charts.speed.max) charts.speed.max = speedMbps * 1.2;
+		charts.speed.text.innerText = `${speedMbps.toFixed(2)} Mbps`;
+		drawGraph("speed", speedMbps);
+
+		if (!isSpeedInit) {
+			load(`[ OK ] Speed loaded: ${speedMbps.toFixed(2)} Mbps`);
+			isSpeedInit = true;
+		}
+	} catch (e) {
+		if (!isSpeedInit) {
+			load("[ FAIL ] Speed " + e);
+			isSpeedInit = true;
+			charts.speed.text.innerText = "ERROR";
+		}
+	}
+}
+
+// Battery
+const batteryDiv = document.getElementById("battery");
+
+function checkBattery() {
+	if (!shouldRun()) {
+		batteryDiv.textContent = "Calculating...";
+		return;
+	}
+
+	try {
+		navigator.getBattery().then(function(battery) {
+			function updateAllStatus() {
+				const level = `${Math.round(battery.level * 100)}%`;
+				const isCharging = battery.charging ? "🗲" : "";
+
+				function formatTime(seconds) {
+					if (seconds === Infinity || isNaN(seconds)) return "Calculating...";
+
+					const hours = Math.floor(seconds / 3600);
+					const mins = Math.floor((seconds % 3600) / 60);
+					const displayMins = mins < 10 ? `0${mins}` : mins;
+					return `${hours}:${displayMins}`;
+				}
+
+				let timeInfo = "";
+				const time = battery.charging ? battery.chargingTime : battery.dischargingTime;
+				const formatted = formatTime(time);
+
+				if (formatted === "Calculating...") {
+					timeInfo = `${formatted}`;
+				} else if (battery.charging) {
+					timeInfo = `${formatted} until full`;
+				} else {
+					timeInfo = `${formatted} left`;
+				}
+				batteryDiv.textContent = `${level} - ${timeInfo}`;
+				document.getElementById("batteryTitle").textContent = `BATTERY ${isCharging}`;
+			}
+			updateAllStatus();
+
+			const events = ["levelchange", "chargingchange", "chargingtimechange", "dischargingtimechange"];
+			events.forEach(event => battery.addEventListener(event, updateAllStatus));
+			load(`[ OK ] Battery level fetched: ${Math.round(battery.level * 100)}%`);
+		});
+	} catch (e) {
+		load("[ FAIL ] Battery " + e);
+		batteryDiv.textContent = "ERROR";
+	}
+}
+
+// Themes
+const rInput = document.getElementById("r");
+const gInput = document.getElementById("g");
+const bInput = document.getElementById("b");
+const rootColor = document.documentElement;
+
+const bgR = document.getElementById("bg-r");
+const bgG = document.getElementById("bg-g");
+const bgB = document.getElementById("bg-b");
+
+const txtR = document.getElementById("txt-r");
+const txtG = document.getElementById("txt-g");
+const txtB = document.getElementById("txt-b");
+
+let pointTemplate;
+
+let colorConfig = {
+	theme: "",
+	bg: "",
+	txt: ""
+};
+
+function setCookie(name, value, days = 7) {
+	const d = new Date();
+	d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+	document.cookie = `${name}=${JSON.stringify(value)};expires=${d.toUTCString()};path=/`;
+}
+
+function getCookie(name) {
+	const nameEQ = name + "=";
+	const ca = document.cookie.split(';');
+	for (let i = 0; i < ca.length; i++) {
+		let c = ca[i].trim();
+		if (c.indexOf(nameEQ) == 0) return JSON.parse(c.substring(nameEQ.length, c.length));
+	}
+	return null;
+}
+
+function updateColor() {
+	const r = rInput.value || 0;
+	const g = gInput.value || 0;
+	const b = bInput.value || 0;
+	const colorString = `rgb(${r}, ${g}, ${b})`;
+	rootColor.style.setProperty("--theme", colorString);
+
+	const bgr = bgR.value || 0;
+	const bgg = bgG.value || 0;
+	const bgb = bgB.value || 0;
+	const bgString = `rgb(${bgr}, ${bgg}, ${bgb})`;
+	rootColor.style.setProperty("--bg", bgString);
+	document.body.style.backgroundColor = bgString;
+
+	const tr = txtR.value || 0;
+	const tg = txtG.value || 0;
+	const tb = txtB.value || 0;
+	const textColor = `rgb(${tr}, ${tg}, ${tb})`;
+	rootColor.style.setProperty("--txt", textColor);
+
+	const terminal = document.getElementById("terminalContent");
+	const stdin = document.getElementById("stdin");
+
+	if (terminal) terminal.style.color = textColor;
+	if (stdin) stdin.style.color = textColor;
+
+	colorConfig = {
+		theme: colorString,
+		bg: bgString,
+		txt: textColor,
+		raw: {
+			main: [r, g, b],
+			bg: [bgr, bgg, bgb],
+			txt: [tr, tg, tb]
+		}
+	};
+
+	setCookie("colorSettings", colorConfig.raw);
+
+	if (pointTemplate) {
+		pointTemplate.set("fill", am5.color(colorString));
+	}
+}
+
+function setFullPreset(main, bg, txt) {
+	[rInput.value, gInput.value, bInput.value] = main;
+	[bgR.value, bgG.value, bgB.value] = bg;
+	[txtR.value, txtG.value, txtB.value] = txt;
+	updateColor();
+}
+
+function loadColors() {
+	const saved = getCookie("colorSettings");
+	if (saved) {
+		[rInput.value, gInput.value, bInput.value] = saved.main;
+		[bgR.value, bgG.value, bgB.value] = saved.bg;
+		[txtR.value, txtG.value, txtB.value] = saved.txt;
+	}
+	updateColor();
+}
+
+[rInput, gInput, bInput, bgR, bgG, bgB, txtR, txtG, txtB].forEach(input => {
+	input.addEventListener("input", updateColor);
+});
+
+document.getElementById("bgGreen").onclick = () => {
+	setFullPreset([51, 255, 51], [0, 0, 0], [51, 255, 51]);
+	setTimeout(updateColor, 10);
+};
+
+document.getElementById("bgAmber").onclick = () => {
+	setFullPreset([255, 176, 0], [0, 0, 0], [255, 176, 0]);
+	setTimeout(updateColor, 10);
+};
+
+document.getElementById("bgWhite").onclick = () => {
+	setFullPreset([240, 255, 255], [0, 0, 0], [240, 255, 255]);
+	setTimeout(updateColor, 10);
+};
+
+loadColors();
+
+// Fonts
+const fontSelect = document.getElementById("fontSelect");
+
+function setGlobalFont(fontFamily) {
+	document.body.style.fontFamily = fontFamily;
+
+	let fontStyle = document.getElementById("dynamicFontFace");
+	if (!fontStyle) {
+		fontStyle = document.createElement("style");
+		fontStyle.id = "dynamicFontFace";
+		document.head.appendChild(fontStyle);
+	}
+
+	fontStyle.textContent = `
+		body, input, button, textarea, .terminal, .mini-info, b, span,
+		#codebox, #codeBlock, #lineNumbers, #preCode code {
+			font-family: "${fontFamily}", monospace !important;
+			line-height: 1.2;
+		}
+	`;
+
+	setCookie("selectedFont", fontFamily, 30);
+}
+
+fontSelect.addEventListener("change", (e) => {
+	setGlobalFont(e.target.value);
+	load(`[ OK ] Font set to ${e.target.value}`);
+});
+
+function loadSavedFont() {
+	const savedFont = getCookie("selectedFont");
+	if (savedFont) {
+		setGlobalFont(savedFont);
+		fontSelect.value = savedFont;
+	}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+	loadSavedFont();
+});
+
+// Admin
+var admin = false;
+
+function login() {
+	const email = document.getElementById("email").value;
+	const password = document.getElementById("password").value;
+
+	if (CONFIG.ADMINS[email] && CONFIG.ADMINS[email].password === password) {
+		document.getElementById("login").style.display = "none";
+		document.getElementById("admin").style.display = "block";
+		document.getElementById("commandInput").style.display = "block";
+		document.querySelectorAll(".user").textContent = email;
+		closeSide();
+		document.getElementById("adminFrame").src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
+
+		admin = true;
+	} else {
+		document.getElementById("adminAlert").style.display = "block";
+	}
+}
+
+// Internet
+const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+function checkConnection() {
+	if (!shouldRun()) {
+		document.getElementById("status").textContent = "Calculating...";
+		return;
+	}
+
+	try {
+		document.getElementById("status").textContent = connection.effectiveType;
+		load(`[ OK ] Network status fetched: ${connection.effectiveType}`);
+	} catch (e) {
+		load("[ FAIL ] Network status " + e);
+		document.getElementById("status").textContent = "ERROR";
+	}
+}
+
+// IP
+let userData = null;
+let isGlobeInit = false;
+let root, chart, rotationAnimation;
+let polygonTemplate, graticuleTemplate, circleTemplate;
+
+async function fetchIPData() {
+	if (userData) return userData;
+
+	try {
+		const response = await fetch("https://ipapi.co/json/");
+
+		if (!response.ok) throw new Error("Network response was not ok");
+
+		const data = await response.json();
+		userData = {
+			ip: data.ip,
+			lat: data.latitude,
+			lon: data.longitude
+		};
+
+		document.getElementById("ip").textContent = userData.ip;
+		document.getElementById("coords").textContent = `${userData.lat}, ${userData.lon}`;
+		if (typeof load === "function") load(`[ OK ] IP fetched: ${userData.ip}`);
+
+		return userData;
+	} catch (e) {
+		document.getElementById("ip").textContent = "ERROR";
+		document.getElementById("coords").textContent = "ERROR";
+		if (typeof load === "function") load("[ FAIL ] IP fetch error: " + e.message);
+		userData = {
+			ip: 0,
+			lat: 0,
+			lon: 0
+		};
+
+		return null;
+	}
+}
+
+// Weather
+async function updateMarsWeatherTable() {
+	const res = await fetch("https://mars.nasa.gov/rss/api/?feed=weather&category=msl&feedtype=json");
+	const data = await res.json();
+
+	let sols = Object.values(data.soles)
+		.filter(sol => sol && sol.max_temp !== null && sol.min_temp !== null && sol.sol && sol.terrestrial_date)
+		.sort((a, b) => new Date(b.terrestrial_date) - new Date(a.terrestrial_date));
+
+	if (sols.length > 0) {
+		const latest = sols[0];
+		document.getElementById("high").textContent = `${latest.max_temp}°C`;
+		document.getElementById("low").textContent = `${latest.min_temp}°C`;
+		document.getElementById("sol").textContent = `${latest.sol}`;
+		load(`[ OK ] Curiosity Rover REMS connected: ${latest.max_temp}°C - ${latest.min_temp}°C`);
+	} else {
+		load("[ FAIL ] Curiosity Rover REMS unable to connect");
+	}
+}
+
+// World view
+async function initMap() {
+	if (root) return;
+
+	const data = await fetchIPData();
+	if (!data) return;
+
+	root = am5.Root.new("chartdiv");
+	root._logo.dispose();
+	root.setThemes([am5themes_Animated.new(root)]);
+
+	chart = root.container.children.push(am5map.MapChart.new(root, {
+		panX: "rotateX",
+		panY: "rotateY",
+		projection: am5map.geoOrthographic(),
+		rotationX: -data.lon,
+		rotationY: -data.lat,
+		maxZoomLevel: 1
+	}));
+
+	let graticuleSeries = chart.series.unshift(am5map.GraticuleSeries.new(root, {
+		step: 10
+	}));
+	graticuleTemplate = graticuleSeries.mapLines.template;
+
+	let polygonSeries = chart.series.push(am5map.MapPolygonSeries.new(root, {
+		geoJSON: am5geodata_worldLow
+	}));
+	polygonTemplate = polygonSeries.mapPolygons.template;
+
+	let pointSeries = chart.series.push(am5map.MapPointSeries.new(root, {}));
+	pointSeries.bullets.push(() => {
+		const circle = am5.Circle.new(root, {
+			radius: 5
+		});
+		circleTemplate = circle;
+		return am5.Bullet.new(root, {
+			sprite: circle
+		});
+	});
+
+	pointSeries.data.setAll([{
+		geometry: {
+			type: "Point",
+			coordinates: [data.lon, data.lat]
+		}
+	}]);
+
+	refreshColors();
+
+	const toggleSpin = () => {
+		if (rotationAnimation) {
+			rotationAnimation.stop();
+			rotationAnimation = null;
+		} else {
+			rotationAnimation = chart.animate({
+				key: "rotationX",
+				from: chart.get("rotationX"),
+				to: chart.get("rotationX") + 360,
+				duration: 30000,
+				loops: Infinity
+			});
+		}
+	};
+
+	const goHome = () => {
+		if (rotationAnimation) toggleSpin();
+		chart.animate({
+			key: "rotationX",
+			to: -data.lon,
+			duration: 1000,
+			easing: am5.ease.out(am5.ease.cubic)
+		});
+		chart.animate({
+			key: "rotationY",
+			to: -data.lat,
+			duration: 1000,
+			easing: am5.ease.out(am5.ease.cubic)
+		});
+	};
+
+	document.getElementById("spinBtn").onclick = toggleSpin;
+	document.getElementById("homeBtn").onclick = goHome;
+
+	chart.appear();
+
+	if (!isGlobeInit) {
+		if (typeof load === "function") load("[ OK ] Global Holographic Projection connected");
+		isGlobeInit = true;
+	}
+}
+
+function refreshColors() {
+	if (!root) return;
+	const style = getComputedStyle(document.documentElement);
+	const txtColor = am5.color(style.getPropertyValue("--txt").trim() || "#FFFFFF");
+	const themeColor = am5.color(style.getPropertyValue("--theme").trim() || "#00FF00");
+
+	if (graticuleTemplate) graticuleTemplate.setAll({
+		stroke: txtColor,
+		strokeOpacity: 0.25
+	});
+	if (polygonTemplate) polygonTemplate.setAll({
+		stroke: txtColor,
+		strokeWidth: 1,
+		fillOpacity: 0
+	});
+	if (circleTemplate) circleTemplate.set("fill", themeColor);
+}
+
+setInterval(() => {
+	refreshColors();
+}, 1000);
+
+// Proxy
+const WASM_URL = "https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.wasm";
+const BASE_WISP_RELAY = "wss://terminal-941307900976.us-central1.run.app/wisp/";
+const SEARCH_ENGINE = "https://duckduckgo.com/html/?q=";
+const SPOOFED_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+
+const urlBar = document.getElementById("url-bar");
+const navBar = document.getElementById("nav-bar");
+const goBtn = document.getElementById("go-btn");
+const routeSelect = document.getElementById("route-select");
+const statusText = document.getElementById("proxy-status");
+const viewport = document.getElementById("viewport");
+const backBtn = document.getElementById("back-btn");
+const fwdBtn = document.getElementById("fwd-btn");
+const reloadBtn = document.getElementById("reload-btn");
+
+let currentUrl = "";
+let historyStack = [];
+let historyIdx = -1;
+
+function getActiveWispEndpoint() {
+	return routeSelect?.value === "tor"
+		? `${BASE_WISP_RELAY}?tor=true`
+		: BASE_WISP_RELAY;
+}
+
+async function applyRouting(showReady = true) {
+	const endpoint = getActiveWispEndpoint();
+	const isTor = routeSelect?.value === "tor";
+
+	statusText.textContent = isTor ? "Switching to Tor..." : "Switching to Clearnet...";
+	libcurl.set_websocket(endpoint);
+
+	if (showReady) {
+		statusText.textContent = isTor ? "Ready (Tor)" : "Ready (Clearnet)";
+	}
+}
+
+async function startEngine() {
+	try {
+		if (typeof libcurl === "undefined") {
+			throw new Error("libcurl.js script was not found.");
+		}
+
+		statusText.textContent = "Loading WASM...";
+		await libcurl.load_wasm(WASM_URL);
+
+		statusText.textContent = "Connecting to Wisp...";
+		await applyRouting(false);
+
+		statusText.textContent = "Ready (Clearnet)";
+		goBtn.disabled = false;
+	} catch (err) {
+		statusText.textContent = "Error: " + err.message;
+		console.error("Initialization error:", err);
+	}
+}
+
+if (routeSelect) {
+	routeSelect.addEventListener("change", async () => {
+		await applyRouting(true);
+		if (currentUrl) {
+			navigateTo(currentUrl, false);
+		}
+	});
+}
+
+window.addEventListener("load", startEngine);
+
+function parseInput(input) {
+	input = input.trim();
+	if (!input) return "";
+	if (/^https?:\/\//i.test(input)) return input;
+	if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/.*)?$/i.test(input)) {
+		return "https://" + input;
+	}
+	return SEARCH_ENGINE + encodeURIComponent(input);
+}
+
+function resolveRelative(refUrl, baseUrl) {
+	try {
+		return new URL(refUrl, baseUrl).href;
+	} catch (e) {
+		return refUrl;
+	}
+}
+
+function buildClientShim(targetUrl) {
+	return `
+	<script>
+		(function() {
+			const TARGET_URL = "${targetUrl}";
+			const SPOOFED_UA = "${SPOOFED_UA}";
+
+			try {
+				window.RTCPeerConnection = undefined;
+				window.webkitRTCPeerConnection = undefined;
+				window.mozRTCPeerConnection = undefined;
+				window.RTCSessionDescription = undefined;
+				window.RTCIceCandidate = undefined;
+				if (navigator.mediaDevices) {
+					navigator.mediaDevices.getUserMedia = undefined;
+				}
+				navigator.getUserMedia = undefined;
+				navigator.webkitGetUserMedia = undefined;
+				navigator.mozGetUserMedia = undefined;
+			} catch (e) {}
+
+			try {
+				Object.defineProperty(navigator, 'userAgent', { get: () => SPOOFED_UA, configurable: true });
+				Object.defineProperty(navigator, 'appVersion', { get: () => SPOOFED_UA.replace(/^[^/]+\\//, ''), configurable: true });
+				Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
+			} catch (e) {}
+
+			function resolveTarget(url) {
+				try {
+					return new URL(url, TARGET_URL).href;
+				} catch (e) {
+					return url;
+				}
+			}
+
+			try {
+				window.open = function(url) {
+					if (url) {
+						window.parent.postMessage({ type: 'PROXY_NAV', url: resolveTarget(url) }, '*');
+					}
+					return null;
+				};
+			} catch (e) {}
+
+			try {
+				window.location.assign = function(url) {
+					window.parent.postMessage({ type: 'PROXY_NAV', url: resolveTarget(url) }, '*');
+				};
+				window.location.replace = function(url) {
+					window.parent.postMessage({ type: 'PROXY_NAV', url: resolveTarget(url) }, '*');
+				};
+			} catch (e) {}
+
+			try {
+				const rawPushState = history.pushState;
+				const rawReplaceState = history.replaceState;
+				history.pushState = function(state, title, url) {
+					if (url) {
+						window.parent.postMessage({ type: 'PROXY_NAV', url: resolveTarget(url), silent: true }, '*');
+					}
+					return rawPushState.apply(this, arguments);
+				};
+				history.replaceState = function(state, title, url) {
+					if (url) {
+						window.parent.postMessage({ type: 'PROXY_NAV', url: resolveTarget(url), silent: true }, '*');
+					}
+					return rawReplaceState.apply(this, arguments);
+				};
+			} catch (e) {}
+
+			document.addEventListener('click', function(e) {
+				const anchor = e.target.closest('a');
+				if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+					e.preventDefault();
+					window.parent.postMessage({ type: 'PROXY_NAV', url: anchor.href }, '*');
+				}
+			}, true);
+
+			document.addEventListener('submit', function(e) {
+				const form = e.target;
+				if (form && form.action) {
+					e.preventDefault();
+					const method = (form.method || 'GET').toUpperCase();
+					const actionUrl = new URL(form.action, TARGET_URL).href;
+					const formData = new FormData(form);
+
+					if (method === 'GET') {
+						const params = new URLSearchParams(formData).toString();
+						const target = actionUrl + (actionUrl.includes('?') ? '&' : '?') + params;
+						window.parent.postMessage({ type: 'PROXY_NAV', url: target }, '*');
+					}
+				}
+			}, true);
+		})();
+		<\/script>
+	`;
+}
+
+function rewriteHtml(rawHtml, targetUrl) {
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(rawHtml, "text/html");
+
+	const baseTag = doc.createElement("base");
+	baseTag.href = targetUrl;
+	if (doc.head.firstChild) {
+		doc.head.insertBefore(baseTag, doc.head.firstChild);
+	} else {
+		doc.head.appendChild(baseTag);
+	}
+
+	doc.querySelectorAll("a[target='_blank'], form[target='_blank']").forEach(el => {
+		el.setAttribute("target", "_self");
+	});
+
+	doc.querySelectorAll("a[href]").forEach(el => {
+		const raw = el.getAttribute("href");
+		if (raw && !raw.startsWith("#") && !raw.startsWith("javascript:")) {
+			el.href = resolveRelative(raw, targetUrl);
+		}
+	});
+
+	doc.querySelectorAll("form[action]").forEach(el => {
+		el.action = resolveRelative(el.getAttribute("action"), targetUrl);
+	});
+
+	const shimWrapper = doc.createElement("div");
+	shimWrapper.innerHTML = buildClientShim(targetUrl);
+	if (doc.head.firstChild) {
+		doc.head.insertBefore(shimWrapper.firstChild, doc.head.firstChild);
+	}
+
+	return "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
+}
+
+async function navigateTo(url, pushHistory = true) {
+	if (!url) return;
+
+	currentUrl = url;
+	urlBar.value = url;
+	statusText.textContent = routeSelect?.value === "tor" ? "Fetching via Tor..." : "Fetching...";
+
+	if (pushHistory) {
+		historyStack = historyStack.slice(0, historyIdx + 1);
+		historyStack.push(url);
+		historyIdx++;
+	}
+
+	try {
+		const response = await libcurl.fetch(url, {
+			headers: {
+				"User-Agent": SPOOFED_UA,
+				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+				"Sec-Fetch-Site": "cross-site",
+				"Sec-Fetch-Mode": "navigate",
+				"Sec-Fetch-Dest": "document",
+				"Sec-Fetch-User": "?1",
+				"Upgrade-Insecure-Requests": "1"
+			}
+		});
+
+		const html = await response.text();
+		const rewrittenHtml = rewriteHtml(html, url);
+
+		const blob = new Blob([rewrittenHtml], { type: "text/html" });
+		if (viewport.dataset.blobUrl) {
+			URL.revokeObjectURL(viewport.dataset.blobUrl);
+		}
+		const blobUrl = URL.createObjectURL(blob);
+		viewport.dataset.blobUrl = blobUrl;
+		viewport.src = blobUrl;
+
+		statusText.textContent = routeSelect?.value === "tor" ? "Ready (Tor)" : "Ready (Clearnet)";
+	} catch (err) {
+		statusText.textContent = "Error";
+		viewport.srcdoc = `<body style="font-family:sans-serif;padding:20px;">
+			<h3>Failed to load page</h3>
+			<p>${err.message || err}</p>
+		</body>`;
+	}
+}
+
+navBar.addEventListener("submit", (e) => {
+	e.preventDefault();
+	navigateTo(parseInput(urlBar.value));
+});
+
+backBtn.addEventListener("click", () => {
+	if (historyIdx > 0) {
+		historyIdx--;
+		navigateTo(historyStack[historyIdx], false);
+	}
+});
+
+fwdBtn.addEventListener("click", () => {
+	if (historyIdx < historyStack.length - 1) {
+		historyIdx++;
+		navigateTo(historyStack[historyIdx], false);
+	}
+});
+
+reloadBtn.addEventListener("click", () => {
+	if (currentUrl) navigateTo(currentUrl, false);
+});
+
+window.addEventListener("message", (e) => {
+	if (e.data && e.data.type === "PROXY_NAV" && e.data.url) {
+		if (e.data.silent) {
+			currentUrl = e.data.url;
+			urlBar.value = e.data.url;
+			historyStack = historyStack.slice(0, historyIdx + 1);
+			historyStack.push(e.data.url);
+			historyIdx++;
+		} else {
+			navigateTo(e.data.url);
+		}
+	}
+});
+
+// Code editor
+const codebox = document.getElementById("codebox");
+const codeBlock = document.getElementById("codeBlock");
+const lineNumbers = document.getElementById("lineNumbers");
+
+// Line numbers
+function updateLineNumbers() {
+	let lineCount = codebox.value.split("\n").length;
+	let lines = "";
+	for (let i = 1; i <= lineCount; i++) {
+		lines += i + "\n";
+	}
+	lineNumbers.textContent = lines;
+}
+
+function updateCode() {
+	let content = codebox.value;
+	codeBlock.textContent = content;
+	
+	updateLineNumbers();
+	highlightJS();
+}
+
+function highlightJS() {
+	document.querySelectorAll("pre code").forEach((el) => {
+		hljs.highlightElement(el);
+	});
+	load("[ OK ] Code Editor loaded");
+}
+
+codebox.addEventListener("input", () => {
+	updateCode();
+	setTheme();
+});
+
+codebox.addEventListener("scroll", () => {
+	codeBlock.scrollTop = codebox.scrollTop;
+	codeBlock.scrollLeft = codebox.scrollLeft;
+	lineNumbers.scrollTop = codebox.scrollTop;
+});
+
+codebox.addEventListener('keydown', (e) => {
+	if (e.key === 'Tab') {
+		e.preventDefault();
+		const { selectionStart, selectionEnd, value } = codebox;
+		const spaces = "  ";
+		codebox.value = value.substring(0, selectionStart) + spaces + value.substring(selectionEnd);
+		codebox.selectionStart = codebox.selectionEnd = selectionStart + spaces.length;
+	}
+});
+
+const themeLink = document.getElementById("theme");
+
+document.getElementById("selectStyle").addEventListener("change", (e) => {
+	themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
+	themeLink.onload = () => {
+		setTheme();
+	};
+});
+
+function setTheme() {
+	const r = document.documentElement;
+	const themeLink = document.getElementById("theme");
+
+	if (!themeLink) return;
+
+	const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === themeLink);
+	if (!sheet) return;
+
+	let rules;
+	try {
+		rules = Array.from(sheet.cssRules || sheet.rules);
+	} catch (e) {
+		console.warn("Access to stylesheet denied (CORS issue or not loaded yet)");
+		return;
+	}
+
+	const getStyle = (selector) => {
+		const rule = rules.find(rule => rule.selectorText && rule.selectorText.split(',').some(s => s.trim() === selector));
+		return rule ? rule.style : null;
+	};
+
+	const hljs = getStyle(".hljs");
+	const subst = getStyle(".hljs-subst");
+	const comment = getStyle(".hljs-comment");
+
+	if (hljs) {
+		const bgColor = hljs.backgroundColor || hljs.background;
+		if (bgColor) r.style.setProperty("--bg", bgColor);
+		
+		const txtColor = hljs.color || (subst ? subst.color : null);
+		if (txtColor) r.style.setProperty("--txt", txtColor);
+	}
+
+	if (comment && comment.color) {
+		r.style.setProperty("--theme", comment.color);
+	} else if (hljs && hljs.color) {
+		r.style.setProperty("--theme", hljs.color);
+	}
+}
+
+codebox.addEventListener("input", function() {
+	localStorage.setItem("savedCode", this.value);
+});
+
+window.addEventListener("load", function() {
+	const savedData = localStorage.getItem("savedCode");
+	if (savedData) {
+		codebox.value = savedData;
+		updateCode();
+	}
+});
+
+document.getElementById("selectLanguage").addEventListener("change", function() {
+	document.getElementById("codeBlock").className = this.value;
+
+	const selectElement = document.getElementById("selectLanguage");
+	const selectedIndex = selectElement.selectedIndex;
+	const hasSavedContent = localStorage.getItem("savedCode");
+
+	if (selectedIndex === 0) {
+		document.getElementById("rte").style.display = "none";
+		document.getElementById("preview-window").style.display = "block";
+
+		if (!hasSavedContent) {
+			codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title</title>\n<style>\n</style>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n<script>\n<\/script>\n</body>\n</html>';
+		}
+	} else if (selectedIndex === 1) {
+		document.getElementById("preview-window").style.display = "none";
+		document.getElementById("rte").style.display = "block";
+
+		if (!hasSavedContent) {
+			codebox.value = 'print("Hello, World!")';
+		}
+		initializePyodide();
+	}
+
+	updateCode();
+	setTheme();
+});
+
+window.onload = function() {
+	localStorage.clear();
+};
+
+function runEditor() {
+	const selectElement = document.getElementById("selectLanguage");
+	const selectedIndex = selectElement.selectedIndex;
+
+	if (selectedIndex === 0) {
+		const preview = document.getElementById("preview-window").contentDocument;
+
+		preview.open();
+		preview.write(codebox.value);
+		preview.close();
+	} else if (selectedIndex === 1) {
+		evaluatePython();
+	}
+}
+
+codebox.value = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title goes here</title>\n<style>\n /* CSS goes here */\n</style>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n<script>\n  // JS goes here\n<\/script>\n</body>\n</html>';
+
+// Python editor
+const rte = document.getElementById("rte");
+
+function addToOutput(s) {
+	rte.value += `${s}\n`;
+	rte.scrollTop = rte.scrollHeight;
+}
+
+async function initializePyodide() {
+	addToOutput("Initializing...");
+	window.pyodide = await loadPyodide({
+		stdout: addToOutput,
+		stderr: addToOutput
+	});
+	addToOutput("Ready");
+}
+
+async function evaluatePython() {
+	const pythonCode = codebox.value;
+
+	try {
+		await pyodide.loadPackagesFromImports(pythonCode, addToOutput, addToOutput);
+		let result = await pyodide.runPythonAsync(pythonCode);
+
+		if (result !== undefined) {
+			addToOutput(`${result}`);
+		}
+	} catch (e) {
+		addToOutput(`ERROR: ${e}`);
+	}
+}
+
+// Commands
+var stdout = document.getElementById("stdout");
+var check = 0;
+
+const input = document.getElementById("stdin");
+const output = document.getElementById("stdout");
+
+input.addEventListener("keydown", function(e) {
+	if (e.key === "Enter") {
+		const command = input.value;
+		output.innerHTML += `<b>${document.getElementById("email").value || "guest@terminal"}:~$</b> ${command}<br>`;
+		handleCommand(command);
+		input.value = "";
+		const scroll = document.getElementById("commandInput");
+
+		scroll.scrollIntoView({
+			block: "end"
+		});
+	}
+});
+
+function handleCommand(cmd) {
+	let response = "";
+	switch (cmd.toLowerCase()) {
+		case "help":
+			response = "List of available commands: about, games, youtube, telescope, radio, editor, theme, login, clear";
+			break;
+		case "about":
+			response = `The TERMINAL is a repository of free games, proxies, and unblocked tools. All resources have been checked for malware.<br><br>
+				Special thanks to the <a href="https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/edit?tab=t.0">Ultimate Game Stash</a> for providing the game files. All rights go to their respective owners.
+			`;
+			break;
+		case "games":
+			document.getElementById("commandInput").style.display = "none";
+			document.getElementById("games").style.display = "block";
+			document.getElementById("fileSearch").focus();
+			break;
+		case "youtube":
+			document.getElementById("commandInput").style.display = "none";
+			document.getElementById("youtube").style.display = "block";
+			document.getElementById("query").focus();
+			break;
+		case "telescope":
+			document.getElementById("telescope").style.display = "block";
+			document.getElementById("commandInput").style.display = "none";
+			break;
+		case "radio":
+			document.getElementById("radio").style.display = "block";
+			document.getElementById("commandInput").style.display = "none";
+			break;
+		case "proxy":
+			document.getElementById("proxy").style.display = "block";
+			closeSide();
+			break;
+		case "editor":
+			document.getElementById("html").style.display = "block";
+			document.getElementById("terminalContent").style.display = "none";
+			closeSide();
+			setTheme(); 
+			updateCode(); 
+
+			isCrtEnabled = true;
+			toggleCrt();
+			document.body.style.textShadow = "none";
+			break;
+		case "theme":
+			document.getElementById("themeSetting").style.display = "block";
+			document.getElementById("commandInput").style.display = "none";
+			break;
+		case "login":
+			document.getElementById("login").style.display = "block";
+			document.getElementById("commandInput").style.display = "none";
+			break;
+		case "admin":
+			if (admin === true) {
+				document.getElementById("admin").style.display = "block";
+			} else {
+				response = "Access denied.";
+			}
+			break;
+		case "furries are cringe":
+			response = "I agree";
+			break;
+		case "clear":
+			output.textContent = "";
+			return;
+		default:
+			response = `ERROR: Command not found: ${cmd}`;
+	}
+	output.innerHTML += `${response}<br>`;
+}
+
+// Search
+document.body.addEventListener("keydown", (event) => {
+	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+		event.preventDefault();
+
+		document.querySelectorAll(".program").forEach(el => {
+			el.style.display = "none";
+		});
+
+		const terminal = document.getElementById("terminalContent");
+		const cmdInput = document.getElementById("commandInput");
+		const stdin = document.getElementById("stdin");
+
+		terminal.style.display = "block";
+		cmdInput.style.display = "block";
+
+		if (colorConfig) {
+			terminal.style.color = colorConfig.theme;
+			stdin.style.color = colorConfig.theme;
+
+			document.body.style.backgroundColor = colorConfig.bg;
+
+			rootColor.style.setProperty("--theme", colorConfig.theme);
+			rootColor.style.setProperty("--bg", colorConfig.bg);
+			rootColor.style.setProperty("--txt", colorConfig.txt);
+		}
+		stdin.focus();
+	}
+});
+
+function handleSearch() {
+	const query = document.getElementById("fileSearch").value.toLowerCase();
+	generateAllSections(query);
+}
+
+// Games
+const blacklistArr = ["dokidokiliteratureclub", "classof09", "skibidi", "yanderesimulator", "tung", "brainrot"];
+
+function handleBlacklistedFile() {
+	window.location.replace("https://ohiomeansjobs.ohio.gov/");
+}
+
+function formatBytes(bytes) {
+	if (!bytes || isNaN(bytes)) return "ERROR";
+	const b = Number(bytes);
+	if (b < 1024) return b + " bytes";
+	const kb = b / 1024;
+	if (kb < 1024) return kb.toFixed(1) + " KB";
+	return (kb / 1024).toFixed(2) + " MB";
+}
+
+const sizeObserver = new IntersectionObserver((entries) => {
+	entries.forEach(entry => {
+		if (entry.isIntersecting) {
+			const btn = entry.target;
+			const url = btn.dataset.url;
+			const sizeInfo = btn.querySelector(".file-size");
+
+			sizeObserver.unobserve(btn);
+
+			fetch(url, { method: 'HEAD' })
+				.then(res => {
+					const size = res.headers.get("content-length");
+					sizeInfo.textContent = formatBytes(size);
+				})
+				.catch(() => {
+					sizeInfo.textContent = " ERROR";
+				});
+		}
+	});
+}, {
+	rootMargin: "50px"
+});
+
+function generateAllSections(filter = "") {
+	const container = document.getElementById("sections-container");
+	const fileCount = document.getElementById("fileCount");
+	container.textContent = "";
+
+	const allChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+	const filesByChar = {};
+	allChars.forEach(char => filesByChar[char] = []);
+
+	let totalFiles = 0;
+
+	files.forEach(file => {
+		const lower = file.toLowerCase();
+		if (lower.includes(filter.toLowerCase()) && lower.startsWith("cl")) {
+			const aftercl = lower.substring(2);
+			if (aftercl.length > 0) {
+				const firstChar = aftercl[0].toUpperCase();
+				if (filesByChar[firstChar]) {
+					filesByChar[firstChar].push(file);
+					totalFiles++;
+				}
+			}
+		}
+	});
+
+	if (fileCount) {
+		if (totalFiles > 1) {
+			fileCount.textContent = totalFiles + " items";
+		} else {
+			fileCount.textContent = totalFiles + " item";
+		}
+	}
+
+	allChars.forEach(char => {
+		if (filter !== "" && filesByChar[char].length === 0) return;
+
+		const section = document.createElement("div");
+		section.className = "letter-section";
+
+		const header = document.createElement("div");
+		header.className = "letter-header";
+		header.textContent = char;
+		section.appendChild(header);
+
+		const buttonsContainer = document.createElement("div");
+		buttonsContainer.className = "buttons-container";
+
+		if (filesByChar[char].length > 0) {
+			filesByChar[char].forEach(file => {
+				const btn = document.createElement("button");
+				btn.className = "file-button";
+
+				const titleSpan = document.createElement("span");
+				titleSpan.className = "file-title";
+				titleSpan.textContent = file.replace(/^cl/, "");
+
+				const sizeInfo = document.createElement("span");
+				sizeInfo.className = "file-size";
+				sizeInfo.textContent = "Calculating...";
+
+				btn.appendChild(titleSpan);
+				btn.appendChild(sizeInfo);
+
+				const normalized = file.includes(".") ? file : file + ".html";
+				const encoded = encodeURIComponent(normalized);
+				const url = `https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile/UGS-Files/${encoded}?t=${Date.now()}`;
+
+				btn.dataset.url = url;
+				sizeObserver.observe(btn);
+
+				btn.onclick = () => {
+					if (typeof blacklistArr !== 'undefined' && blacklistArr.some(segment => file.toLowerCase().includes(segment.toLowerCase()))) {
+						handleBlacklistedFile();
+					} else {
+						fetch(url)
+							.then(res => res.text())
+							.then(text => {
+								const newWin = window.open("about:blank", "_blank");
+								if (newWin) {
+									newWin.document.open();
+									newWin.document.write(text);
+									newWin.document.close();
+								}
+							});
+					}
+				};
+
+				buttonsContainer.appendChild(btn);
+			});
+		} else {
+			const emptyMsg = document.createElement("div");
+			emptyMsg.className = "empty-message";
+			emptyMsg.textContent = "ERROR: No files have been found";
+			buttonsContainer.appendChild(emptyMsg);
+		}
+
+		section.appendChild(buttonsContainer);
+		container.appendChild(section);
+	});
+
+	load("[ OK ] Games loaded");
+}
+
+// Telescope
+const imagePaths = ["potw1924a.jpg", "heic2007a.jpg", "heic1509a.jpg", "heic1501a.jpg", "potw2050a.jpg", "heic2018b.jpg", "heic0715a.jpg", "heic1608a.jpg", "potw1345a.jpg", "heic1307a.jpg", "heic0817a.jpg", "heic0406a.jpg", "potw2049a.jpg", "opo0328a.jpg", "heic0702a.jpg", "heic0515a.jpg", "heic1808a.jpg", "potw1811a.jpg", "heic0910h.jpg", "heic0601a.jpg", "heic0514a.jpg", "heic0506b.jpg", "heic0506a.jpg", "opo0511a.jpg", "heic0503a.jpg", "opo0501a.jpg", "heic0206c.jpg", "heic0206a.jpg", "heic0206b.jpg", "heic0109a.jpg", "opo0006a.jpg", "heic2105a.jpg", "heic1302a.jpg", "heic1105a.jpg", "heic1104a.jpg", "heic1007a.jpg", "heic0910s.jpg", "heic0910i.jpg", "heic0905a.jpg", "heic0719a.jpg", "heic0707a.jpg", "heic0706a.jpg", "opo0624a.jpg", "heic0604a.jpg", "heic0602a.jpg", "opo0028a.jpg", "opo9941a.jpg", "potw2114a.jpg", "potw2108a.jpg", "potw2036a.jpg", "heic1516a.jpg", "heic1310a.jpg", "heic0411a.jpg", "opo0123a.jpg", "potw2110a.jpg", "potw1441a.jpg", "heic1406a.jpg", "heic1305a.jpg", "heic1110a.jpg", "heic0814a.jpg", "opo0010a.jpg", "potw1933a.jpg", "potw1932a.jpg", "potw1847a.jpg", "potw1805a.jpg", "potw1542a.jpg", "potw2144a.jpg", "potw1921a.jpg", "heic1907a.jpg", "potw1850a.jpg", "potw1849a.jpg", "heic1811a.jpg", "potw1822a.jpg", "heic1806a.jpg", "potw1804a.jpg", "potw1751a.jpg", "heic1712a.jpg", "heic1520a.jpg", "heic1518a.jpg", "heic1503a.jpg", "heic1502a.jpg", "opo1438b.jpg", "heic1323a.jpg", "heic0910e.jpg", "heic0814b.jpg", "potw2044a.jpg", "potw2006a.jpg", "potw1940a.jpg", "potw1924a.jpg", "heic2017a.jpg"];
+
+const bg = document.getElementById("bg");
+
+function setRandomBackground() {
+	const randomIndex = Math.floor(Math.random() * imagePaths.length);
+	const selectedImagePath = imagePaths[randomIndex];
+	bg.style.backgroundImage = `url("https://cdn.esahubble.org/archives/images/wallpaper2/${selectedImagePath}")`;
+
+	load("[ OK ] Hubble Space Telescope connected");
+}
+
+function toggleBackground() {
+	bg.classList.toggle("invisible");
+
+	if (bg.classList.contains("invisible")) {
+		document.getElementById("teleStatus").textContent = "> STATUS: Deactivated";
+	} else {
+		document.getElementById("teleStatus").textContent = "> STATUS: Activated";
+	}
+}
+
+window.onYouTubeIframeAPIReady = function() {
+	searchPlayer = new YT.Player("mainVideoDisplay", {
+		height: "360",
+		width: "640",
+		videoId: "",
+		events: {
+			"onStateChange": onSearchPlayerStateChange
+		}
+	});
+};
+
+(function loadYoutubeAPI() {
+	var tag = document.createElement('script');
+	tag.src = "https://www.youtube.com/iframe_api";
+	var firstScriptTag = document.getElementsByTagName('script')[0];
+	firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+})();
+
+function onSearchPlayerStateChange(event) {
+	if (event.data === YT.PlayerState.PLAYING) {
+		radioPlayer.pause();
+		document.getElementById("playBtn").textContent = "> PLAY";
+	} else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+		radioPlayer.play();
+		document.getElementById("playBtn").textContent = "> PAUSE";
+	}
+}
+
+function togglePlayback() {
+	const btn = document.getElementById("playBtn");
+	if (radioPlayer.paused) {
+		if (searchPlayer && searchPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+			searchPlayer.pauseVideo();
+		}
+		radioPlayer.play();
+		btn.textContent = "> PAUSE";
+	} else {
+		radioPlayer.pause();
+		btn.textContent = "> PLAY";
+	}
+}
+
+function updateTitleDisplay(title) {
+	document.getElementById("songTitle").textContent = `NOW PLAYING: ${title}`;
+}
+
+const searchBtn = document.getElementById("youtubeSearch");
+searchBtn.addEventListener("click", searchVideos);
+
+const query = document.getElementById("query");
+
+query.addEventListener("keydown", function(event) {
+	if (event.key === "Enter") {
+		event.preventDefault();
+		searchVideos();
+	}
+});
+
+async function searchVideos() {
+	const query = document.getElementById("query").value;
+	if (!query) return alert("Enter a search term");
+
+	const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${query}&type=video&key=${CONFIG.YOUTUBE_API_KEY}`;
+
+	try {
+		const response = await fetch(url);
+		const data = await response.json();
+		displayResults(data.items);
+		document.getElementById("videoDisplay").style.display = "none";
+	} catch (e) {
+		document.getElementById("results").textContent = "ERROR: " + e;
+	}
+}
+
+function displayResults(videos) {
+	const resultsDiv = document.getElementById("results");
+	resultsDiv.textContent = "";
+	videos.forEach(video => {
+		const { title, thumbnails, channelTitle } = video.snippet;
+		const videoId = video.id.videoId;
+
+		const card = document.createElement("div");
+		card.className = "video-card";
+		card.innerHTML = `
+			<img src="${thumbnails.medium.url}" alt="${title}">
+			<p>${title}</p>
+			<span>${channelTitle}</span>
+		`;
+
+		card.onclick = () => {
+			document.getElementById("videoDisplay").style.display = "block";
+			document.getElementById("playingTitle").innerText = title;
+			searchPlayer.loadVideoById(videoId);
+			const vid = document.getElementById("videoDisplay");
+			vid.scrollIntoView({ behavior: "smooth" });
+		};
+		resultsDiv.appendChild(card);
+	});
+}
+
+// Loading screen
+let splashStarted = false;
+
+function load(msg) {
+	const newItem = document.createElement("li");
+	newItem.classList.add("stdout");
+
+	newItem.textContent = msg;
+	document.getElementById("outputList").appendChild(newItem);
+	setTimeout(startSplash, 1000);
+}
+
+function startSplash() {
+	if (splashStarted) return;
+	splashStarted = true;
+	setTimeout(showSplash, 500);
+}
+
+function showSplash() {
+	document.getElementById("outputList").style.display = "none";
+	document.getElementById("splash").style.display = "block";
+	document.getElementById("splash").classList.add("fade-in");
+	setTimeout(showTerminal, 3000);
+}
+
+function showTerminal() {
+	document.getElementById("fileSearch").focus();
+	document.getElementById("terminalContent").classList.add("fade-in");
+	document.getElementById("bg").classList.add("fade-in-bg");
+	setTimeout(openSide, 1500);
+	setTimeout(() => {
+		document.getElementById("terminalContent").style.opacity = "1";
+		document.getElementById("terminalContent").classList.remove("fade-in");
+	}, 1500);
+}
+
+// Glitch effect
+const container = document.querySelectorAll(".container");
+const body = document.querySelectorAll("*");
+const filter = document.getElementById("displacement");
+const noise = document.querySelector("feTurbulence");
+const glowline = document.getElementById("glowline");
+const scanline = document.getElementById("scanline");
+
+let isCrtEnabled = true;
+
+function triggerGlitch() {
+	if (!isCrtEnabled) {
+		filter.setAttribute("scale", 0);
+		return;
+	}
+
+	noise.setAttribute("seed", Math.random() * 100);
+	const intensity = Math.random() * 5;
+	filter.setAttribute("scale", intensity);
+
+	const duration = Math.random() * 200 + 50;
+
+	setTimeout(() => {
+		filter.setAttribute("scale", 0);
+		if (isCrtEnabled) {
+			const nextGlitch = Math.random() * 1500 + 500;
+			setTimeout(triggerGlitch, nextGlitch);
+		}
+	}, duration);
+}
+
+function toggleCrt() {
+	isCrtEnabled = !isCrtEnabled;
+
+	container.forEach(container => {
+		if (isCrtEnabled) {
+			container.style.filter = "url(#chromatic-aberration) url(#glitch)";
+			body.forEach(element => {
+				element.style.textShadow = "0 0 5px var(--txt)";
+			});
+
+		} else {
+			container.style.filter = "none";
+			body.forEach(element => {
+				element.style.textShadow = "none";
+			});
+		}
+	});
+
+	if (isCrtEnabled) {
+		triggerGlitch();
+		glowline.style.display = "block";
+		scanline.style.display = "block";
+		document.body.classList.add("flicker");
+	} else {
+		filter.setAttribute("scale", 0);
+		glowline.style.display = "none";
+		scanline.style.display = "none";
+		document.body.classList.remove("flicker");
+	}
+}
+
+triggerGlitch();
+</script>
 	<script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/config.js"></script>
 </body>
 </html>
