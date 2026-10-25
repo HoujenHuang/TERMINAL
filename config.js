@@ -1,0 +1,11 @@
+const CONFIG = {
+	YOUTUBE_KEY: "KEY_GOES_HERE",
+	GEMINI_KEY: "KEY_GOES_HERE",
+	WISP_URL: "KEY_GOES_HERE",
+
+	ADMINS: {
+		"NAME_GOES_HERE@terminal": {
+			password: "PASSWORD_GOES_HERE"
+		}
+	}
+};
