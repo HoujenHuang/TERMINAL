@@ -259,26 +259,44 @@ document.addEventListener('DOMContentLoaded', () => {
 // Admin
 var admin = false;
 
-function login() {
+async function login() {
   const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
 
-  if (CONFIG.ADMINS[email] && CONFIG.ADMINS[email].password === password) {
-    document.getElementById("login").style.display = "none";
-    document.getElementById("admin").style.display = "block";
-    document.getElementById("commandInput").style.display = "block";
-    document.querySelectorAll(".user").textContent = email;
-    closeSide();
-    document.getElementById("adminFrame").src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
+  try {
+    const res = await fetch(`${API_GATEWAY}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: email, password: password })
+    });
 
-    admin = true;
-  } else {
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      document.getElementById("login").style.display = "none";
+      document.getElementById("admin").style.display = "block";
+      document.getElementById("commandInput").style.display = "block";
+      document.querySelectorAll(".user").forEach(el => el.textContent = email);
+      closeSide();
+      document.getElementById("adminFrame").src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
+
+      admin = true;
+    } else {
+      document.getElementById("adminAlert").style.display = "block";
+    }
+  } catch (err) {
+    console.error("Login request failed:", err);
     document.getElementById("adminAlert").style.display = "block";
   }
 }
 
+// Proxy
+const API_GATEWAY = "https://d33m8d2luw6c6z.cloudfront.net";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.wasm";
-const WISP_URL = CONFIG.WISP_URL;
+const WISP_URL = (typeof CONFIG !== "undefined" && CONFIG.WISP_URL) 
+  ? CONFIG.WISP_URL 
+  : "d33m8d2luw6c6z.cloudfront.net";
+
 const BASE_HOST = `wss://${WISP_URL}/wisp/`;
 const SEARCH_ENGINE = "https://duckduckgo.com/html/?q=";
 const SPOOFED_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -1936,6 +1954,7 @@ function generateAllSections(filter = "") {
   load("[ OK ] Games loaded");
 }
 
+// YouTube
 window.onYouTubeIframeAPIReady = function() {
   searchPlayer = new YT.Player("mainVideoDisplay", {
     height: "360",
@@ -1982,6 +2001,7 @@ function updateTitleDisplay(title) {
   document.getElementById("songTitle").textContent = `NOW PLAYING: ${title}`;
 }
 
+// Tsarevich
 const MODEL = "gemini-flash-lite-latest";
 const RATE_INPUT_1M = 0.0375;
 const RATE_OUTPUT_1M = 0.1500;
@@ -2067,8 +2087,7 @@ function isPure(classification) {
   return /\bClass\s+I\b/i.test(classification);
 }
 
-// Edict of Obliteration
-function applyClientSideEdict(uiItems) {
+function edictOfObliteration(uiItems) {
   const condemnedChannels = new Set();
 
   uiItems.forEach(item => {
@@ -2115,7 +2134,7 @@ function applyClientSideEdict(uiItems) {
   return uiItems;
 }
 
-async function purgeHeresy(videos, query, geminiKey) {
+async function purgeHeresy(videos, query) {
   const chunkSize = 25;
   const chunks = [];
   for (let i = 0; i < videos.length; i += chunkSize) {
@@ -2219,7 +2238,7 @@ ${templateStr}\n\n`
     while (attempts < maxAttempts) {
       attempts++;
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${geminiKey}`, {
+        const res = await fetch(`${API_GATEWAY}/api/gemini`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -2233,14 +2252,14 @@ ${templateStr}\n\n`
               response_mime_type: "application/json",
               temperature: 0.1,
               responseSchema: {
-                type: "ARRAY",
-                description: `A list of exactly ${chunk.length} video assessments.`,
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    id: {
-                      type: "STRING"
-                    },
+                  type: "ARRAY",
+                  description: `A list of exactly ${chunk.length} video assessments.`,
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      id: {
+                        type: "STRING"
+                      },
                     isSafe: {
                       type: "BOOLEAN"
                     },
@@ -2336,15 +2355,12 @@ queryInput.addEventListener("keydown", function(event) {
 });
 
 async function searchVideos() {
-  const ytKey = CONFIG.YOUTUBE_KEY;
-  const geminiKey = CONFIG.GEMINI_KEY;
   const query = document.getElementById('query').value.trim();
   const statusText = document.getElementById('youtube-status');
   const metricsDiv = document.getElementById('youtube-metrics');
   const resultsDiv = document.getElementById('results');
   const searchBtn = document.getElementById('youtubeSearch');
 
-  if (!ytKey || !geminiKey) return alert("Missing authorization keys");
   if (!query) return alert("Please enter a query");
 
   resultsDiv.innerHTML = "";
@@ -2357,11 +2373,12 @@ async function searchVideos() {
   const startTime = performance.now();
 
   try {
-    const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&safeSearch=strict&q=${encodeURIComponent(query)}&type=video&key=${ytKey}`;
+    // Route YouTube search through Gateway
+    const ytUrl = `${API_GATEWAY}/api/youtube?q=${encodeURIComponent(query)}`;
     const ytResponse = await fetch(ytUrl);
     const ytData = await ytResponse.json();
 
-    if (ytData.error) throw new Error(ytData.error.message);
+    if (ytData.error) throw new Error(ytData.error.message || ytData.error);
     if (!ytData.items || ytData.items.length === 0) {
       statusText.innerText = "ERROR: No records found";
       searchBtn.disabled = false;
@@ -2370,7 +2387,8 @@ async function searchVideos() {
 
     statusText.innerText = `2/2: Compiling and assessing ${ytData.items.length} visual records...`;
 
-    const responseData = await purgeHeresy(ytData.items, query, geminiKey);
+    // No geminiKey parameter needed
+    const responseData = await purgeHeresy(ytData.items, query);
     const latencySec = ((performance.now() - startTime) / 1000).toFixed(2);
     const aiAssessments = responseData.assessments;
     const usageData = responseData.usage;
@@ -2390,7 +2408,7 @@ async function searchVideos() {
       };
     });
 
-    finalUIItems = applyClientSideEdict(finalUIItems);
+    finalUIItems = edictOfObliteration(finalUIItems);
 
     statusText.className = "";
     const safeCount = finalUIItems.filter(item => item.assessment.isSafe).length;
