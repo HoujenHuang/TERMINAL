@@ -643,6 +643,53 @@ function buildClientShim(targetUrl) {
         navigator.mozGetUserMedia = undefined;
       } catch (e) {}
 
+      // Patch window.URL constructor to safely handle blob: and relative bases
+      try {
+        const OrigURL = window.URL;
+        function ProxiedURL(url, base) {
+          if (!new.target) {
+            return new ProxiedURL(url, base);
+          }
+          let safeBase = base;
+          if (safeBase && typeof safeBase === 'object' && typeof safeBase.href === 'string') {
+            safeBase = safeBase.href;
+          }
+          if (typeof safeBase === 'string') {
+            if (safeBase.startsWith('blob:') || safeBase === 'null' || (window.location.origin && window.location.origin !== 'null' && safeBase.startsWith(window.location.origin))) {
+              safeBase = TARGET_URL;
+            }
+          } else if (!safeBase && typeof url === 'string' && !url.includes('://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
+            safeBase = TARGET_URL;
+          }
+
+          let safeUrl = url;
+          if (safeUrl && typeof safeUrl === 'object' && typeof safeUrl.href === 'string') {
+            safeUrl = safeUrl.href;
+          }
+          if (typeof safeUrl === 'string' && (safeUrl.startsWith('blob:') || safeUrl === window.location.href)) {
+            safeUrl = TARGET_URL;
+          }
+
+          try {
+            return new OrigURL(safeUrl, safeBase);
+          } catch (err) {
+            return new OrigURL(safeUrl, TARGET_URL);
+          }
+        }
+        ProxiedURL.prototype = OrigURL.prototype;
+        ProxiedURL.createObjectURL = OrigURL.createObjectURL ? OrigURL.createObjectURL.bind(OrigURL) : undefined;
+        ProxiedURL.revokeObjectURL = OrigURL.revokeObjectURL ? OrigURL.revokeObjectURL.bind(OrigURL) : undefined;
+        ProxiedURL.canParse = OrigURL.canParse ? OrigURL.canParse.bind(OrigURL) : undefined;
+        window.URL = ProxiedURL;
+      } catch (e) {}
+
+      try {
+        Object.defineProperty(document, 'baseURI', {
+          get: () => TARGET_URL,
+          configurable: true
+        });
+      } catch (e) {}
+
       function unwrap(url) {
         if (!url) return url;
         try {
@@ -661,10 +708,30 @@ function buildClientShim(targetUrl) {
       function resolveTarget(url) {
         if (!url) return "";
         try {
-          return new URL(url, TARGET_URL).href;
+          const str = String(url).trim();
+          if (str.startsWith("blob:") || str === window.location.href) {
+            return TARGET_URL;
+          }
+          if (window.location.origin && window.location.origin !== "null" && str.startsWith(window.location.origin)) {
+            const parsed = new URL(str);
+            if (parsed.pathname === window.location.pathname || parsed.pathname.includes(window.location.pathname)) {
+              return TARGET_URL;
+            }
+            return new URL(parsed.pathname + parsed.search + parsed.hash, TARGET_URL).href;
+          }
+          return new URL(str, TARGET_URL).href;
         } catch (e) {
           return url;
         }
+      }
+
+      function isInternalUrl(u) {
+        if (!u) return true;
+        const str = String(u);
+        return str.startsWith('blob:') ||
+               str.startsWith('data:') ||
+               str.startsWith('javascript:') ||
+               (window.location.host && str.includes(window.location.host));
       }
 
       function syncTitle() {
@@ -677,41 +744,66 @@ function buildClientShim(targetUrl) {
 
       try {
         window.open = function(url) {
-          if (url) {
+          if (url && !isInternalUrl(url)) {
             window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
           }
           return null;
         };
         window.location.assign = function(url) {
-          window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
+          if (url && !isInternalUrl(url)) {
+            window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
+          }
         };
         window.location.replace = function(url) {
-          window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
+          if (url && !isInternalUrl(url)) {
+            window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
+          }
         };
       } catch (e) {}
 
       try {
         history.pushState = function(state, unused, url) {
           if (url) {
-            window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: unwrap(resolveTarget(url)) }, '*');
+            const resolved = unwrap(resolveTarget(url));
+            if (resolved && resolved !== TARGET_URL && !isInternalUrl(resolved)) {
+              window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: resolved }, '*');
+            }
           }
         };
         history.replaceState = function(state, unused, url) {
           if (url) {
-            window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: unwrap(resolveTarget(url)) }, '*');
+            const resolved = unwrap(resolveTarget(url));
+            if (resolved && resolved !== TARGET_URL && !isInternalUrl(resolved)) {
+              window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: resolved }, '*');
+            }
           }
         };
       } catch (e) {}
 
+      try {
+        if (navigator.clipboard) {
+          const origWriteText = navigator.clipboard.writeText ? navigator.clipboard.writeText.bind(navigator.clipboard) : null;
+          navigator.clipboard.writeText = async function(text) {
+            try {
+              if (origWriteText) return await origWriteText(text);
+            } catch (err) {
+              window.parent.postMessage({ type: 'PROXY_CLIPBOARD_COPY', text: String(text) }, '*');
+            }
+          };
+        }
+      } catch (e) {}
+
       document.addEventListener('click', function(e) {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
         const anchor = e.target.closest('a, area');
-        if (!anchor) return;
+        if (!anchor || anchor.hasAttribute('download')) return;
 
         const rawHref = anchor.getAttribute('href') || anchor.getAttribute('xlink:href');
         if (!rawHref) return;
 
         const trimmed = rawHref.trim();
-        if (trimmed.toLowerCase().startsWith('javascript:')) return;
+        if (trimmed === '' || trimmed === '#' || trimmed.toLowerCase().startsWith('javascript:')) return;
 
         if (trimmed.startsWith('#')) {
           e.preventDefault();
@@ -725,11 +817,11 @@ function buildClientShim(targetUrl) {
         }
 
         e.preventDefault();
-        e.stopPropagation();
-
         const resolved = unwrap(resolveTarget(trimmed));
-        window.parent.postMessage({ type: 'PROXY_NAV', url: resolved }, '*');
-      }, true);
+        if (!isInternalUrl(resolved)) {
+          window.parent.postMessage({ type: 'PROXY_NAV', url: resolved }, '*');
+        }
+      }, false);
 
       document.addEventListener('submit', function(e) {
         const form = e.target;
@@ -737,7 +829,6 @@ function buildClientShim(targetUrl) {
 
         const rawAction = form.getAttribute('action') || '';
         const actionUrl = resolveTarget(rawAction || TARGET_URL);
-        const method = (form.getAttribute('method') || 'GET').toUpperCase();
 
         e.preventDefault();
         e.stopPropagation();
@@ -749,14 +840,53 @@ function buildClientShim(targetUrl) {
       }, true);
 
       try {
-        const origFetch = window.fetch;
         window.fetch = function(input, init) {
-          let url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-          if (url && !/^https?:\\/\\/|^data:|^blob:/i.test(url)) {
-            url = resolveTarget(url);
-            if (typeof input === 'string') input = url;
+          let url = "";
+          if (typeof input === 'string') {
+            url = input;
+          } else if (input && typeof input === 'object' && input.href) {
+            url = input.href;
+          } else if (input && input.url) {
+            url = input.url;
           }
-          return origFetch.call(this, input, init);
+          url = resolveTarget(url);
+          init = init || {};
+          const method = init.method || (input && input.method) || 'GET';
+          const headers = {};
+          if (input && input.headers) {
+            new Headers(input.headers).forEach((v, k) => { headers[k] = v; });
+          }
+          if (init.headers) {
+            new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
+          }
+          const body = init.body || (input && input.body);
+
+          return new Promise((resolve, reject) => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (event) => {
+              const resData = event.data;
+              if (resData.error) {
+                return reject(new TypeError(resData.error));
+              }
+              const responseInit = {
+                status: resData.status,
+                statusText: resData.statusText || "",
+                headers: new Headers(resData.headers)
+              };
+              const resBody = [204, 205, 304].includes(resData.status) ? null : resData.body;
+              const response = new Response(resBody, responseInit);
+              Object.defineProperty(response, 'url', { value: url });
+              resolve(response);
+            };
+
+            window.parent.postMessage({
+              type: 'PROXY_FETCH_REQ',
+              url: url,
+              method: method,
+              headers: headers,
+              body: body
+            }, '*', [channel.port2]);
+          });
         };
 
         const origXhrOpen = XMLHttpRequest.prototype.open;
@@ -798,6 +928,7 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
     }
   });
 
+  doc.querySelectorAll("base").forEach(el => el.remove());
   const baseTag = doc.createElement("base");
   baseTag.href = targetUrl;
   if (doc.head && doc.head.firstChild) doc.head.insertBefore(baseTag, doc.head.firstChild);
@@ -876,7 +1007,7 @@ async function navigateTo(url, pushHistory = true) {
     const response = await libcurl.fetch(url, {
       headers: {
         "User-Agent": SPOOFED_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml,application/pdf;q=0.9,*/*;q=0.8",
         "Upgrade-Insecure-Requests": "1"
       }
     });
@@ -891,32 +1022,63 @@ async function navigateTo(url, pushHistory = true) {
     currentUrl = finalUrl;
     if (urlBar) urlBar.value = finalUrl;
 
-    const html = await response.text();
-    const rewrittenHtml = await processAndRewriteHtml(html, finalUrl);
-
-    const blob = new Blob([rewrittenHtml], {
-      type: "text/html"
-    });
-    if (viewport && viewport.dataset.blobUrl) {
-      URL.revokeObjectURL(viewport.dataset.blobUrl);
+    let currentViewport = document.getElementById("viewport");
+    if (currentViewport && currentViewport.dataset.blobUrl) {
+      URL.revokeObjectURL(currentViewport.dataset.blobUrl);
     }
-    const blobUrl = URL.createObjectURL(blob);
-    if (viewport) {
-      viewport.removeAttribute("srcdoc");
-      viewport.dataset.blobUrl = blobUrl;
-      viewport.src = blobUrl;
+
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const isPdfMagic = bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const isPdf = isPdfMagic || contentType.includes("pdf") || finalUrl.toLowerCase().split(/[?#]/)[0].endsWith(".pdf");
+
+    if (isPdf) {
+      if (currentViewport && currentViewport.hasAttribute("sandbox")) {
+        const freshIframe = currentViewport.cloneNode(false);
+        freshIframe.removeAttribute("sandbox");
+        currentViewport.replaceWith(freshIframe);
+        currentViewport = freshIframe;
+      }
+
+      const blob = new Blob([buffer], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+      if (currentViewport) {
+        currentViewport.removeAttribute("srcdoc");
+        currentViewport.dataset.blobUrl = blobUrl;
+        currentViewport.src = blobUrl;
+      }
+    } else {
+      if (currentViewport && !currentViewport.hasAttribute("sandbox")) {
+        const freshIframe = currentViewport.cloneNode(false);
+        freshIframe.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox");
+        freshIframe.setAttribute("allow", "clipboard-read; clipboard-write");
+        currentViewport.replaceWith(freshIframe);
+        currentViewport = freshIframe;
+      }
+
+      const html = new TextDecoder("utf-8").decode(buffer);
+      const rewrittenHtml = await processAndRewriteHtml(html, finalUrl);
+      const blob = new Blob([rewrittenHtml], { type: "text/html" });
+      const blobUrl = URL.createObjectURL(blob);
+      if (currentViewport) {
+        currentViewport.removeAttribute("srcdoc");
+        currentViewport.dataset.blobUrl = blobUrl;
+        currentViewport.src = blobUrl;
+      }
     }
 
     if (statusText) statusText.textContent = `Ready (${currentProfile})`;
   } catch (err) {
     const category = await detectCloudflareCategory(url, err);
+    const currentViewport = document.getElementById("viewport");
 
-    if (viewport) {
-      if (viewport.dataset.blobUrl) {
-        URL.revokeObjectURL(viewport.dataset.blobUrl);
-        delete viewport.dataset.blobUrl;
+    if (currentViewport) {
+      if (currentViewport.dataset.blobUrl) {
+        URL.revokeObjectURL(currentViewport.dataset.blobUrl);
+        delete currentViewport.dataset.blobUrl;
       }
-      viewport.src = "about:blank";
+      currentViewport.src = "about:blank";
 
       const themeColor = document.documentElement.style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
       const currentFont = document.body.style.fontFamily || "monospace";
@@ -928,8 +1090,8 @@ async function navigateTo(url, pushHistory = true) {
         '"': '&quot;'
       } [c] || c));
 
-      viewport.style.backgroundColor = "transparent";
-      viewport.setAttribute("allowtransparency", "true");
+      currentViewport.style.backgroundColor = "transparent";
+      currentViewport.setAttribute("allowtransparency", "true");
 
       const baseStyle = `
           * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -943,7 +1105,7 @@ async function navigateTo(url, pushHistory = true) {
 
       if (category) {
         if (statusText) statusText.textContent = "I'm not blind";
-        viewport.srcdoc = `
+        currentViewport.srcdoc = `
             <!DOCTYPE html>
             <html>
               <head>
@@ -956,7 +1118,7 @@ async function navigateTo(url, pushHistory = true) {
             </html>`;
       } else {
         if (statusText) statusText.textContent = "Load Failed";
-        viewport.srcdoc = `
+        currentViewport.srcdoc = `
             <!DOCTYPE html>
             <html>
               <head>
@@ -1000,6 +1162,46 @@ if (reloadBtn) reloadBtn.onclick = () => {
 window.addEventListener("message", (e) => {
   if (!e.data) return;
 
+  if (e.data.type === "PROXY_FETCH_REQ" && e.ports && e.ports[0]) {
+    const port = e.ports[0];
+    const fetchOpts = {
+      method: e.data.method || "GET",
+      headers: {
+        "User-Agent": SPOOFED_UA,
+        ...(e.data.headers || {})
+      }
+    };
+    if (e.data.body && !["GET", "HEAD"].includes(fetchOpts.method)) {
+      fetchOpts.body = e.data.body;
+    }
+
+    libcurl.fetch(e.data.url, fetchOpts)
+      .then(async (res) => {
+        const resHeaders = {};
+        if (res.headers && typeof res.headers.forEach === "function") {
+          res.headers.forEach((v, k) => { resHeaders[k] = v; });
+        }
+        const buf = await res.arrayBuffer();
+        port.postMessage({
+          status: res.status,
+          statusText: res.statusText,
+          headers: resHeaders,
+          body: buf
+        }, [buf]);
+      })
+      .catch((err) => {
+        port.postMessage({ error: err.message || String(err) });
+      });
+    return;
+  }
+
+  if (e.data.type === "PROXY_CLIPBOARD_COPY" && e.data.text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(e.data.text).catch(() => {});
+    }
+    return;
+  }
+
   if (e.data.type === "PROXY_NAV" && e.data.url) {
     navigateTo(e.data.url);
   }
@@ -1019,7 +1221,6 @@ window.addEventListener("message", (e) => {
     }
   }
 });
-
 // Code editor
 const codebox = document.getElementById("codebox");
 const codeBlock = document.getElementById("codeBlock");
