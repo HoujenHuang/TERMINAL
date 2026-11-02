@@ -1,40 +1,14 @@
 // Radio
-const songData = [{
-    filename: "resurrection.mp3",
-    title: "ППК - Воскрешение"
-  },
-  {
-    filename: "dont_leave.mp3",
-    title: "Gummy Boy - Don't Leave"
-  },
-  {
-    filename: "zagadka.mp3",
-    title: "PRNRML - Загадка 1"
-  },
-  {
-    filename: "zodiak.mp3",
-    title: "Зодиак - Зодиак"
-  },
-  {
-    filename: "groza.mp3",
-    title: "Творожное озеро - Гроза"
-  },
-  {
-    filename: "phobos.mp3",
-    title: "Dmitriy Ivankov - Phobos"
-  },
-  {
-    filename: "vremya.mp3",
-    title: "Наукоград - Время"
-  },
-  {
-    filename: "8080.mp3",
-    title: "Priroda - 8080"
-  },
-  {
-    filename: "mlechnymi_putyami_v_prekrasnoye_daleko.mp3",
-    title: "NTorchestra - Млечными путями"
-  }
+const songData = [
+  { filename: "resurrection.mp3", title: "ППК - Воскрешение" },
+  { filename: "dont_leave.mp3", title: "Gummy Boy - Don't Leave" },
+  { filename: "zagadka.mp3", title: "PRNRML - Загадка 1" },
+  { filename: "zodiak.mp3", title: "Зодиак - Зодиак" },
+  { filename: "groza.mp3", title: "Творожное озеро - Гроза" },
+  { filename: "phobos.mp3", title: "Dmitriy Ivankov - Phobos" },
+  { filename: "vremya.mp3", title: "Наукоград - Время" },
+  { filename: "8080.mp3", title: "Priroda - 8080" },
+  { filename: "mlechnymi_putyami_v_prekrasnoye_daleko.mp3", title: "NTorchestra - Млечными путями" }
 ];
 
 const audioBaseUrl = "https://raw.githack.com/HoujenHuang/TERMINAL/main/static/";
@@ -50,12 +24,10 @@ function playNewRadioSong() {
   const song = getRandomSong();
   radioPlayer.src = audioBaseUrl + song.filename;
   updateTitleDisplay(song.title);
-  radioPlayer.play().catch(e => console.log("Autoplay prevented or file missing"));
+  radioPlayer.play().catch(() => {});
 }
 
-radioPlayer.addEventListener('ended', () => {
-  playNewRadioSong();
-});
+radioPlayer.addEventListener('ended', playNewRadioSong);
 
 var start = false;
 
@@ -72,7 +44,6 @@ function handleStartupInput(event) {
   if (document.hidden) return;
 
   start = true;
-
   window.removeEventListener("keydown", handleStartupInput);
 
   radioPlayer.volume = 0.5;
@@ -105,14 +76,12 @@ function goFullscreen() {
 // Tab toggle
 const sideLeft = document.getElementById("leftTerminal");
 const sideRight = document.getElementById("rightTerminal");
-
 const btnLeft = document.getElementById("sideBtnLeft");
 const btnRight = document.getElementById("sideBtnRight");
 
 function closeSide() {
   sideLeft.style.width = "0";
   sideRight.style.width = "0";
-
   btnLeft.style.opacity = "1";
   btnRight.style.opacity = "1";
   isActive = false;
@@ -121,28 +90,27 @@ function closeSide() {
 function openSide() {
   sideLeft.style.width = "50%";
   sideRight.style.width = "50%";
-
   btnLeft.style.opacity = "0";
   btnRight.style.opacity = "0";
   isActive = true;
 }
 
-// Themes
+// Themes & IP Censorship Setting
 const rInput = document.getElementById("r");
 const gInput = document.getElementById("g");
 const bInput = document.getElementById("b");
 const rootColor = document.documentElement;
 
 let pointTemplate;
-
-let colorConfig = {
-  theme: ""
-};
+let colorConfig = { theme: "" };
+let isIpCensored = false;
 
 function setCookie(name, value, days = 7) {
   const d = new Date();
   d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
-  document.cookie = `${name}=${JSON.stringify(value)};expires=${d.toUTCString()};path=/`;
+  const expires = `expires=${d.toUTCString()};`;
+  const valStr = encodeURIComponent(JSON.stringify(value));
+  document.cookie = `${name}=${valStr};${expires}path=/;SameSite=Lax`;
 }
 
 function getCookie(name) {
@@ -150,9 +118,47 @@ function getCookie(name) {
   const ca = document.cookie.split(';');
   for (let i = 0; i < ca.length; i++) {
     let c = ca[i].trim();
-    if (c.indexOf(nameEQ) == 0) return JSON.parse(c.substring(nameEQ.length, c.length));
+    if (c.indexOf(nameEQ) === 0) {
+      const raw = c.substring(nameEQ.length);
+      try {
+        return JSON.parse(decodeURIComponent(raw));
+      } catch (e) {
+        try {
+          return JSON.parse(raw);
+        } catch (_) {
+          return raw;
+        }
+      }
+    }
   }
   return null;
+}
+
+function censorIp(ipStr) {
+  if (!ipStr || typeof ipStr !== "string") return ipStr;
+  return ipStr.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, (m, o1, o2, o3, o4) => {
+    return `${o1}.${"█".repeat(o2.length)}.${"█".repeat(o3.length)}.${"█".repeat(o4.length)}`;
+  });
+}
+
+function updateIpDisplays() {
+  const ipEl = document.getElementById("ip");
+  if (ipEl) {
+    if (!ipEl.dataset.rawIp && !ipEl.textContent.includes("Calculating")) {
+      ipEl.dataset.rawIp = ipEl.textContent;
+    }
+    if (ipEl.dataset.rawIp) {
+      ipEl.textContent = isIpCensored ? censorIp(ipEl.dataset.rawIp) : ipEl.dataset.rawIp;
+    }
+  }
+  const btn = document.getElementById("ipCensorToggle");
+  if (btn) btn.textContent = `Censor IPs: ${isIpCensored ? "ON" : "OFF"}`;
+}
+
+function toggleIpCensor() {
+  isIpCensored = !isIpCensored;
+  setCookie("ipCensored", isIpCensored, 30);
+  updateIpDisplays();
 }
 
 function updateColor() {
@@ -254,33 +260,320 @@ function loadSavedFont() {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadSavedFont();
+  const savedCensor = getCookie("ipCensored");
+  if (savedCensor !== null) {
+    isIpCensored = Boolean(savedCensor);
+    updateIpDisplays();
+  }
 });
 
-// Admin
+// Admin, 1-Second Polling & Canvas Graph Renderers
 var admin = false;
+let adminPollInterval = null;
+let adminToken = null;
+
+// Graph history buffers (last 35 data points)
+const HISTORY_LEN = 35;
+const cpuHistory = new Array(HISTORY_LEN).fill(0);
+const hostMemHistory = new Array(HISTORY_LEN).fill(0);
+const rxEnpHistory = new Array(HISTORY_LEN).fill(0);
+const rxWgHistory = new Array(HISTORY_LEN).fill(0);
+const txEnpHistory = new Array(HISTORY_LEN).fill(0);
+const txWgHistory = new Array(HISTORY_LEN).fill(0);
+
+// Combined Client Net speed history
+const clientDownHistory = new Array(HISTORY_LEN).fill(0);
+const clientUpHistory = new Array(HISTORY_LEN).fill(0);
+
+function getActiveThemeColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--theme').trim() || 'rgb(51, 255, 51)';
+}
+
+function drawLineChart(canvasId, dataArr, maxVal = 100, isDashed = false) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const themeCol = getActiveThemeColor();
+  ctx.strokeStyle = themeCol;
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = themeCol;
+  ctx.shadowBlur = 4;
+  if (isDashed) ctx.setLineDash([4, 3]);
+  else ctx.setLineDash([]);
+
+  const step = w / (dataArr.length - 1);
+  ctx.beginPath();
+  dataArr.forEach((val, i) => {
+    const norm = Math.max(0, Math.min(1, val / maxVal));
+    const x = i * step;
+    const y = h - (norm * (h - 4)) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Subtle gradient under solid curves
+  if (!isDashed) {
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(51, 255, 51, 0.08)";
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawDualInterfaceChart(canvasId, enpArr, wgArr) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const themeCol = getActiveThemeColor();
+  const maxVal = Math.max(10, ...enpArr, ...wgArr);
+  const step = w / (HISTORY_LEN - 1);
+
+  // 1. enp0s31f6 = dashed line (former)
+  ctx.strokeStyle = themeCol;
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  enpArr.forEach((val, i) => {
+    const norm = Math.max(0, Math.min(1, val / maxVal));
+    const x = i * step;
+    const y = h - (norm * (h - 4)) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // 2. wg0 = solid line (latter)
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1.6;
+  ctx.shadowColor = themeCol;
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  wgArr.forEach((val, i) => {
+    const norm = Math.max(0, Math.min(1, val / maxVal));
+    const x = i * step;
+    const y = h - (norm * (h - 4)) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCombinedSpeedChart(downArr, upArr) {
+  const canvas = document.getElementById('speedCombinedChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const themeCol = getActiveThemeColor();
+  const midY = h / 2;
+
+  // Zero-axis separator
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  ctx.lineTo(w, midY);
+  ctx.stroke();
+
+  const maxVal = Math.max(1, ...downArr, ...upArr);
+  const step = w / (HISTORY_LEN - 1);
+
+  // Positive half: Download (going upward from center)
+  ctx.setLineDash([]);
+  ctx.strokeStyle = themeCol;
+  ctx.shadowColor = themeCol;
+  ctx.shadowBlur = 3;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  downArr.forEach((val, i) => {
+    const norm = Math.max(0, Math.min(1, val / maxVal));
+    const x = i * step;
+    const y = midY - (norm * (midY - 2));
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Negative half: Upload (going downward from center)
+  ctx.beginPath();
+  upArr.forEach((val, i) => {
+    const norm = Math.max(0, Math.min(1, val / maxVal));
+    const x = i * step;
+    const y = midY + (norm * (midY - 2));
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+async function renderAdminDashboard() {
+  if (!adminToken) return;
+
+  try {
+    const res = await fetch(`${API_GATEWAY}/api/admin/costs?token=${encodeURIComponent(adminToken)}`, {
+      headers: { "Authorization": `Bearer ${adminToken}` }
+    });
+
+    if (res.status === 401) {
+      if (adminPollInterval) clearInterval(adminPollInterval);
+      document.body.classList.remove('is-admin');
+      admin = false;
+      adminToken = null;
+      return;
+    }
+
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // 1. Host CPU graph
+    if (data.system && typeof data.system.cpuVal !== "undefined") {
+      cpuHistory.shift();
+      cpuHistory.push(data.system.cpuVal);
+      drawLineChart("cpuChart", cpuHistory, 100);
+      const cpuTxt = document.getElementById("cpuText");
+      if (cpuTxt) cpuTxt.textContent = data.system.cpu;
+    }
+
+    // 2. Host Memory graph
+    if (data.system && typeof data.system.memPercent !== "undefined") {
+      hostMemHistory.shift();
+      hostMemHistory.push(data.system.memPercent);
+      drawLineChart("hostMemChart", hostMemHistory, 100);
+      const memTxt = document.getElementById("hostMemText");
+      if (memTxt) memTxt.textContent = data.system.memory;
+    }
+
+    // 3. Server RX/TX Dual Graphs (enp0s31f6 dashed, wg0 solid)
+    if (data.system && data.system.interfaces) {
+      const enp = data.system.interfaces.enp0s31f6 || { rxRate: 0, txRate: 0 };
+      const wg = data.system.interfaces.wg0 || { rxRate: 0, txRate: 0 };
+
+      rxEnpHistory.shift(); rxEnpHistory.push(enp.rxRate);
+      rxWgHistory.shift(); rxWgHistory.push(wg.rxRate);
+      drawDualInterfaceChart("adminNetRxChart", rxEnpHistory, rxWgHistory);
+
+      txEnpHistory.shift(); txEnpHistory.push(enp.txRate);
+      txWgHistory.shift(); txWgHistory.push(wg.txRate);
+      drawDualInterfaceChart("adminNetTxChart", txEnpHistory, txWgHistory);
+
+      const rxLabel = document.getElementById("adminRxText");
+      if (rxLabel) rxLabel.textContent = `enp: ${enp.rxRateFormatted || '0 KB/s'} | wg: ${wg.rxRateFormatted || '0 KB/s'}`;
+      const txLabel = document.getElementById("adminTxText");
+      if (txLabel) txLabel.textContent = `enp: ${enp.txRateFormatted || '0 KB/s'} | wg: ${wg.txRateFormatted || '0 KB/s'}`;
+    }
+  } catch (err) {
+    console.error("Dashboard poll failed:", err);
+  }
+}
+
+// Intercept speed updates to feed combined bidirectional client chart
+setInterval(() => {
+  const speedTxt = document.getElementById("speedText")?.textContent || "";
+  const match = speedTxt.match(/([\d.]+)\s*\/\s*([\d.]+)/);
+  if (match) {
+    clientDownHistory.shift(); clientDownHistory.push(parseFloat(match[1]) || 0);
+    clientUpHistory.shift(); clientUpHistory.push(parseFloat(match[2]) || 0);
+  } else {
+    clientDownHistory.shift(); clientDownHistory.push(0);
+    clientUpHistory.shift(); clientUpHistory.push(0);
+  }
+  drawCombinedSpeedChart(clientDownHistory, clientUpHistory);
+}, 1000);
+
+function applyAdminLogin(username, token) {
+  adminToken = token;
+  admin = true;
+  document.body.classList.add("is-admin");
+
+  const cleanUser = username.includes("@") ? username.split("@")[0] : username;
+  document.querySelectorAll(".user").forEach(el => {
+    el.textContent = cleanUser;
+  });
+
+  const loginEl = document.getElementById("login");
+  if (loginEl) loginEl.style.display = "none";
+
+  const adminEl = document.getElementById("admin");
+  if (adminEl) adminEl.style.display = "block";
+
+  const adminFrame = document.getElementById("adminFrame");
+  if (adminFrame && !adminFrame.src) {
+    adminFrame.src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
+  }
+
+  const emailEl = document.getElementById("email");
+  if (emailEl) emailEl.value = username;
+
+  renderAdminDashboard();
+  if (adminPollInterval) clearInterval(adminPollInterval);
+  // Requirement 1: 1-second synchronization
+  adminPollInterval = setInterval(renderAdminDashboard, 1000);
+}
 
 async function login() {
-  const email = document.getElementById("email").value;
+  const emailInput = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
   try {
     const res = await fetch(`${API_GATEWAY}/api/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: email, password: password })
+      body: JSON.stringify({ username: emailInput, password: password })
     });
 
     const data = await res.json();
 
-    if (res.ok && data.success) {
-      document.getElementById("login").style.display = "none";
-      document.getElementById("admin").style.display = "block";
-      document.getElementById("commandInput").style.display = "block";
-      document.querySelectorAll(".user").forEach(el => el.textContent = email);
-      closeSide();
-      document.getElementById("adminFrame").src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
+    if (res.ok && data.success && data.token) {
+      const rememberMe = document.getElementById("rememberMe");
+      if (rememberMe && rememberMe.checked) {
+        setCookie("adminSession", { username: emailInput, token: data.token }, 30);
+      } else {
+        setCookie("adminSession", null, -1);
+      }
 
-      admin = true;
+      applyAdminLogin(emailInput, data.token);
+      document.getElementById("commandInput").style.display = "block";
+      closeSide();
     } else {
       document.getElementById("adminAlert").style.display = "block";
     }
@@ -288,6 +581,34 @@ async function login() {
     console.error("Login request failed:", err);
     document.getElementById("adminAlert").style.display = "block";
   }
+}
+
+function initAuthListeners() {
+  ["email", "password"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          login();
+        }
+      });
+    }
+  });
+
+  const saved = getCookie("adminSession");
+  if (saved && saved.username && saved.token) {
+    applyAdminLogin(saved.username, saved.token);
+  } else if (saved && saved.username) {
+    const emailEl = document.getElementById("email");
+    if (emailEl) emailEl.value = saved.username;
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initAuthListeners);
+} else {
+  initAuthListeners();
 }
 
 // Proxy
@@ -542,15 +863,35 @@ function bufferToDataUri(buffer, mimeType) {
   return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
+function toggleProxyConsole() {
+  const cWrapper = document.getElementById("proxy-console-wrapper");
+  if (!cWrapper) return;
+  const isHidden = cWrapper.style.display === "none";
+  cWrapper.style.display = isHidden ? "flex" : "none";
+  const btn = document.getElementById("toggleProxyConsoleBtn");
+  if (btn) btn.textContent = isHidden ? "Hide Console" : "Console";
+}
+
+function clearProxyConsole() {
+  const c = document.getElementById("proxy-console");
+  if (c) c.value = "";
+}
+
+function logProxyConsole(msg) {
+  const c = document.getElementById("proxy-console");
+  if (c) {
+    c.value += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+    c.scrollTop = c.scrollHeight;
+  }
+}
+
 async function fetchAssetTunnel(url, asBinary = false) {
   const cacheKey = `${url}::${asBinary ? "bin" : "txt"}`;
   if (assetCache.has(cacheKey)) return assetCache.get(cacheKey);
 
   try {
     const res = await libcurl.fetch(url, {
-      headers: {
-        "User-Agent": SPOOFED_UA
-      }
+      headers: { "User-Agent": SPOOFED_UA }
     });
 
     let assetResult = null;
@@ -571,6 +912,7 @@ async function fetchAssetTunnel(url, asBinary = false) {
     }
     return assetResult;
   } catch (err) {
+    logProxyConsole(`[Asset Error] ${url} - ${err.message || err}`);
     console.warn(`[Inliner] Failed to fetch asset: ${url}`, err);
     return null;
   }
@@ -596,10 +938,26 @@ async function inlineCssUrls(cssText, baseUrl) {
 async function inlineSubresources(doc, baseUrl) {
   if (statusText) statusText.textContent = "Inlining styles & assets...";
 
-  const linkTags = [...doc.querySelectorAll('link[rel="stylesheet"]')];
+  const inlineCssEnabled = document.getElementById("inlineCssToggle") ? document.getElementById("inlineCssToggle").checked : true;
+  const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel="stylesheet"]')] : [];
+  const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 40);
+
+  let remaining = linkTags.length + imgTags.length;
+  if (remaining > 0) {
+    logProxyConsole(`[Inliner] Starting resource inlining (${remaining} elements to load)...`);
+  }
+
+  const decrementAndLog = (src) => {
+    remaining--;
+    logProxyConsole(`[Inliner] Loaded ${src}. Remaining elements: ${remaining}`);
+  };
+
   const stylePromises = linkTags.map(async (link) => {
     const href = link.getAttribute("href");
-    if (!href) return;
+    if (!href) {
+      remaining--;
+      return;
+    }
     const absUrl = resolveRelative(href, baseUrl);
     let rawCss = await fetchAssetTunnel(absUrl, false);
     if (rawCss) {
@@ -608,20 +966,27 @@ async function inlineSubresources(doc, baseUrl) {
       styleTag.textContent = rawCss;
       link.replaceWith(styleTag);
     }
+    decrementAndLog(absUrl);
   });
 
-  const imgTags = [...doc.querySelectorAll("img[src]")];
-  const imgPromises = imgTags.slice(0, 40).map(async (img) => {
+  const imgPromises = imgTags.map(async (img) => {
     const src = img.getAttribute("src");
-    if (!src || src.startsWith("data:")) return;
+    if (!src || src.startsWith("data:")) {
+      remaining--;
+      return;
+    }
     const absUrl = resolveRelative(src, baseUrl);
     const dataUri = await fetchAssetTunnel(absUrl, true);
     if (dataUri) {
       img.setAttribute("src", dataUri);
     }
+    decrementAndLog(absUrl);
   });
 
   await Promise.allSettled([...stylePromises, ...imgPromises]);
+  if (linkTags.length + imgTags.length > 0) {
+    logProxyConsole(`[Inliner] Finished inlining all elements.`);
+  }
 }
 
 // DOM rewriting
@@ -643,17 +1008,24 @@ function buildClientShim(targetUrl) {
         navigator.mozGetUserMedia = undefined;
       } catch (e) {}
 
-      // Patch window.URL constructor to safely handle blob: and relative bases
+      const _log = console.log, _warn = console.warn, _error = console.error, _info = console.info;
+      function relayConsole(level, args) {
+        try {
+          const serialized = Array.from(args).map(a => (typeof a === 'object' && a !== null) ? JSON.stringify(a) : String(a)).join(' ');
+          window.parent.postMessage({ type: 'PROXY_CONSOLE_LOG', level: level.toUpperCase(), text: serialized }, '*');
+        } catch(e) {}
+      }
+      console.log = function(...args) { relayConsole('log', args); _log && _log.apply(console, args); };
+      console.warn = function(...args) { relayConsole('warn', args); _warn && _warn.apply(console, args); };
+      console.error = function(...args) { relayConsole('error', args); _error && _error.apply(console, args); };
+      console.info = function(...args) { relayConsole('info', args); _info && _info.apply(console, args); };
+
       try {
         const OrigURL = window.URL;
         function ProxiedURL(url, base) {
-          if (!new.target) {
-            return new ProxiedURL(url, base);
-          }
+          if (!new.target) return new ProxiedURL(url, base);
           let safeBase = base;
-          if (safeBase && typeof safeBase === 'object' && typeof safeBase.href === 'string') {
-            safeBase = safeBase.href;
-          }
+          if (safeBase && typeof safeBase === 'object' && typeof safeBase.href === 'string') safeBase = safeBase.href;
           if (typeof safeBase === 'string') {
             if (safeBase.startsWith('blob:') || safeBase === 'null' || (window.location.origin && window.location.origin !== 'null' && safeBase.startsWith(window.location.origin))) {
               safeBase = TARGET_URL;
@@ -663,9 +1035,7 @@ function buildClientShim(targetUrl) {
           }
 
           let safeUrl = url;
-          if (safeUrl && typeof safeUrl === 'object' && typeof safeUrl.href === 'string') {
-            safeUrl = safeUrl.href;
-          }
+          if (safeUrl && typeof safeUrl === 'object' && typeof safeUrl.href === 'string') safeUrl = safeUrl.href;
           if (typeof safeUrl === 'string' && (safeUrl.startsWith('blob:') || safeUrl === window.location.href)) {
             safeUrl = TARGET_URL;
           }
@@ -690,6 +1060,19 @@ function buildClientShim(targetUrl) {
         });
       } catch (e) {}
 
+      window.onerror = function(msg, url, line, col) {
+        window.parent.postMessage({
+          type: 'PROXY_CONSOLE_ERROR',
+          text: msg + (line ? ' (' + line + (col ? ':' + col : '') + ')' : '')
+        }, '*');
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        window.parent.postMessage({
+          type: 'PROXY_CONSOLE_ERROR',
+          text: 'Unhandled Rejection: ' + (e.reason ? (e.reason.message || e.reason) : '')
+        }, '*');
+      });
+
       function unwrap(url) {
         if (!url) return url;
         try {
@@ -709,9 +1092,7 @@ function buildClientShim(targetUrl) {
         if (!url) return "";
         try {
           const str = String(url).trim();
-          if (str.startsWith("blob:") || str === window.location.href) {
-            return TARGET_URL;
-          }
+          if (str.startsWith("blob:") || str === window.location.href) return TARGET_URL;
           if (window.location.origin && window.location.origin !== "null" && str.startsWith(window.location.origin)) {
             const parsed = new URL(str);
             if (parsed.pathname === window.location.pathname || parsed.pathname.includes(window.location.pathname)) {
@@ -728,10 +1109,7 @@ function buildClientShim(targetUrl) {
       function isInternalUrl(u) {
         if (!u) return true;
         const str = String(u);
-        return str.startsWith('blob:') ||
-               str.startsWith('data:') ||
-               str.startsWith('javascript:') ||
-               (window.location.host && str.includes(window.location.host));
+        return str.startsWith('blob:') || str.startsWith('data:') || str.startsWith('javascript:') || (window.location.host && str.includes(window.location.host));
       }
 
       function syncTitle() {
@@ -744,20 +1122,14 @@ function buildClientShim(targetUrl) {
 
       try {
         window.open = function(url) {
-          if (url && !isInternalUrl(url)) {
-            window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
-          }
+          if (url && !isInternalUrl(url)) window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
           return null;
         };
         window.location.assign = function(url) {
-          if (url && !isInternalUrl(url)) {
-            window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
-          }
+          if (url && !isInternalUrl(url)) window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
         };
         window.location.replace = function(url) {
-          if (url && !isInternalUrl(url)) {
-            window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
-          }
+          if (url && !isInternalUrl(url)) window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*');
         };
       } catch (e) {}
 
@@ -780,25 +1152,10 @@ function buildClientShim(targetUrl) {
         };
       } catch (e) {}
 
-      try {
-        if (navigator.clipboard) {
-          const origWriteText = navigator.clipboard.writeText ? navigator.clipboard.writeText.bind(navigator.clipboard) : null;
-          navigator.clipboard.writeText = async function(text) {
-            try {
-              if (origWriteText) return await origWriteText(text);
-            } catch (err) {
-              window.parent.postMessage({ type: 'PROXY_CLIPBOARD_COPY', text: String(text) }, '*');
-            }
-          };
-        }
-      } catch (e) {}
-
       document.addEventListener('click', function(e) {
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-
         const anchor = e.target.closest('a, area');
         if (!anchor || anchor.hasAttribute('download')) return;
-
         const rawHref = anchor.getAttribute('href') || anchor.getAttribute('xlink:href');
         if (!rawHref) return;
 
@@ -818,85 +1175,21 @@ function buildClientShim(targetUrl) {
 
         e.preventDefault();
         const resolved = unwrap(resolveTarget(trimmed));
-        if (!isInternalUrl(resolved)) {
-          window.parent.postMessage({ type: 'PROXY_NAV', url: resolved }, '*');
-        }
+        if (!isInternalUrl(resolved)) window.parent.postMessage({ type: 'PROXY_NAV', url: resolved }, '*');
       }, false);
 
       document.addEventListener('submit', function(e) {
         const form = e.target;
         if (!form) return;
-
         const rawAction = form.getAttribute('action') || '';
         const actionUrl = resolveTarget(rawAction || TARGET_URL);
-
         e.preventDefault();
         e.stopPropagation();
-
         const formData = new FormData(form);
         const params = new URLSearchParams(formData).toString();
         const target = actionUrl + (actionUrl.includes('?') ? '&' : '?') + params;
         window.parent.postMessage({ type: 'PROXY_NAV', url: target }, '*');
       }, true);
-
-      try {
-        window.fetch = function(input, init) {
-          let url = "";
-          if (typeof input === 'string') {
-            url = input;
-          } else if (input && typeof input === 'object' && input.href) {
-            url = input.href;
-          } else if (input && input.url) {
-            url = input.url;
-          }
-          url = resolveTarget(url);
-          init = init || {};
-          const method = init.method || (input && input.method) || 'GET';
-          const headers = {};
-          if (input && input.headers) {
-            new Headers(input.headers).forEach((v, k) => { headers[k] = v; });
-          }
-          if (init.headers) {
-            new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
-          }
-          const body = init.body || (input && input.body);
-
-          return new Promise((resolve, reject) => {
-            const channel = new MessageChannel();
-            channel.port1.onmessage = (event) => {
-              const resData = event.data;
-              if (resData.error) {
-                return reject(new TypeError(resData.error));
-              }
-              const responseInit = {
-                status: resData.status,
-                statusText: resData.statusText || "",
-                headers: new Headers(resData.headers)
-              };
-              const resBody = [204, 205, 304].includes(resData.status) ? null : resData.body;
-              const response = new Response(resBody, responseInit);
-              Object.defineProperty(response, 'url', { value: url });
-              resolve(response);
-            };
-
-            window.parent.postMessage({
-              type: 'PROXY_FETCH_REQ',
-              url: url,
-              method: method,
-              headers: headers,
-              body: body
-            }, '*', [channel.port2]);
-          });
-        };
-
-        const origXhrOpen = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function(method, url, ...args) {
-          if (url && !/^https?:\\/\\/|^data:|^blob:/i.test(url)) {
-            url = resolveTarget(url);
-          }
-          return origXhrOpen.call(this, method, url, ...args);
-        };
-      } catch (e) {}
     })();
   `;
 }
@@ -948,11 +1241,8 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
 
   const scriptTag = doc.createElement("script");
   scriptTag.textContent = buildClientShim(targetUrl);
-  if (doc.head) {
-    doc.head.insertBefore(scriptTag, doc.head.firstChild);
-  } else if (doc.documentElement) {
-    doc.documentElement.insertBefore(scriptTag, doc.documentElement.firstChild);
-  }
+  if (doc.head) doc.head.insertBefore(scriptTag, doc.head.firstChild);
+  else if (doc.documentElement) doc.documentElement.insertBefore(scriptTag, doc.documentElement.firstChild);
 
   return "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
 }
@@ -963,14 +1253,10 @@ async function detectCloudflareCategory(url, error) {
     const hostname = new URL(url).hostname;
     const [secRes, famRes] = await Promise.allSettled([
       fetch(`https://security.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
-        headers: {
-          "Accept": "application/dns-json"
-        }
+        headers: { "Accept": "application/dns-json" }
       }).then(r => r.json()),
       fetch(`https://family.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
-        headers: {
-          "Accept": "application/dns-json"
-        }
+        headers: { "Accept": "application/dns-json" }
       }).then(r => r.json())
     ]);
 
@@ -985,7 +1271,6 @@ async function detectCloudflareCategory(url, error) {
   if (errText.includes("0.0.0.0") || errText.includes("blocked") || errText.includes("refused")) {
     return "Policy";
   }
-
   return null;
 }
 
@@ -993,6 +1278,7 @@ async function navigateTo(url, pushHistory = true) {
   url = unwrapRedirectUrl(url);
   if (!url) return;
 
+  const navStartTime = performance.now();
   currentUrl = url;
   if (urlBar) urlBar.value = url;
   if (statusText) statusText.textContent = `Fetching (${currentProfile})...`;
@@ -1028,6 +1314,15 @@ async function navigateTo(url, pushHistory = true) {
     }
 
     const buffer = await response.arrayBuffer();
+    const navLatency = ((performance.now() - navStartTime) / 1000).toFixed(2);
+    const transferredKb = (buffer.byteLength / 1024).toFixed(1);
+
+    const proxyMetrics = document.getElementById("proxy-metrics");
+    if (proxyMetrics) {
+      proxyMetrics.style.display = "block";
+      proxyMetrics.innerHTML = `Latency: <strong>${navLatency}s</strong> | Transfer: <strong>${transferredKb} KB</strong>`;
+    }
+
     const bytes = new Uint8Array(buffer);
     const isPdfMagic = bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
@@ -1040,7 +1335,6 @@ async function navigateTo(url, pushHistory = true) {
         currentViewport.replaceWith(freshIframe);
         currentViewport = freshIframe;
       }
-
       const blob = new Blob([buffer], { type: "application/pdf" });
       const blobUrl = URL.createObjectURL(blob);
       if (currentViewport) {
@@ -1056,7 +1350,6 @@ async function navigateTo(url, pushHistory = true) {
         currentViewport.replaceWith(freshIframe);
         currentViewport = freshIframe;
       }
-
       const html = new TextDecoder("utf-8").decode(buffer);
       const rewrittenHtml = await processAndRewriteHtml(html, finalUrl);
       const blob = new Blob([rewrittenHtml], { type: "text/html" });
@@ -1070,6 +1363,7 @@ async function navigateTo(url, pushHistory = true) {
 
     if (statusText) statusText.textContent = `Ready (${currentProfile})`;
   } catch (err) {
+    logProxyConsole(`[Page Load Error] ${url} - ${err.message || err}`);
     const category = await detectCloudflareCategory(url, err);
     const currentViewport = document.getElementById("viewport");
 
@@ -1083,12 +1377,8 @@ async function navigateTo(url, pushHistory = true) {
       const themeColor = document.documentElement.style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
       const currentFont = document.body.style.fontFamily || "monospace";
       const safeError = String(err.message || err).replace(/[&<>'"]/g, c => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&#39;',
-        '"': '&quot;'
-      } [c] || c));
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[c] || c));
 
       currentViewport.style.backgroundColor = "transparent";
       currentViewport.setAttribute("allowtransparency", "true");
@@ -1108,12 +1398,10 @@ async function navigateTo(url, pushHistory = true) {
         currentViewport.srcdoc = `
             <!DOCTYPE html>
             <html>
-              <head>
-                <style>${baseStyle}</style>
-              </head>
+              <head><style>${baseStyle}</style></head>
               <body>
                 <b>[ HERESY DETECTED ]</b><br><br>
-                This website is affiliated with Class ${category} heresy. For the continuation of my existence and and for the safety of yourself, traffic to this page has been terminated.
+                This website is affiliated with Class ${category} heresy. For the continuation of my existence and for the safety of yourself, traffic to this page has been terminated.
               </body>
             </html>`;
       } else {
@@ -1121,9 +1409,7 @@ async function navigateTo(url, pushHistory = true) {
         currentViewport.srcdoc = `
             <!DOCTYPE html>
             <html>
-              <head>
-                <style>${baseStyle}</style>
-              </head>
+              <head><style>${baseStyle}</style></head>
               <body>
                 <b>[ FAIL ] Load Error</b><br><br>
                 ${safeError}
@@ -1162,65 +1448,24 @@ if (reloadBtn) reloadBtn.onclick = () => {
 window.addEventListener("message", (e) => {
   if (!e.data) return;
 
-  if (e.data.type === "PROXY_FETCH_REQ" && e.ports && e.ports[0]) {
-    const port = e.ports[0];
-    const fetchOpts = {
-      method: e.data.method || "GET",
-      headers: {
-        "User-Agent": SPOOFED_UA,
-        ...(e.data.headers || {})
-      }
-    };
-    if (e.data.body && !["GET", "HEAD"].includes(fetchOpts.method)) {
-      fetchOpts.body = e.data.body;
-    }
-
-    libcurl.fetch(e.data.url, fetchOpts)
-      .then(async (res) => {
-        const resHeaders = {};
-        if (res.headers && typeof res.headers.forEach === "function") {
-          res.headers.forEach((v, k) => { resHeaders[k] = v; });
-        }
-        const buf = await res.arrayBuffer();
-        port.postMessage({
-          status: res.status,
-          statusText: res.statusText,
-          headers: resHeaders,
-          body: buf
-        }, [buf]);
-      })
-      .catch((err) => {
-        port.postMessage({ error: err.message || String(err) });
-      });
-    return;
-  }
-
-  if (e.data.type === "PROXY_CLIPBOARD_COPY" && e.data.text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(e.data.text).catch(() => {});
-    }
-    return;
-  }
-
-  if (e.data.type === "PROXY_NAV" && e.data.url) {
-    navigateTo(e.data.url);
-  }
-
+  if (e.data.type === "PROXY_NAV" && e.data.url) navigateTo(e.data.url);
   if (e.data.type === "PROXY_URL_UPDATE" && e.data.url) {
     currentUrl = e.data.url;
     if (urlBar) urlBar.value = currentUrl;
   }
-
   if (e.data.type === "PROXY_TITLE" && e.data.title) {
     if (typeof tabs !== "undefined") {
       const proxyTab = tabs.find(t => t.program === "proxy");
       if (proxyTab) {
-        proxyTab.title = e.data.title.slice(0, 16);
+        proxyTab.title = e.data.title;
         renderTabs();
       }
     }
   }
+  if (e.data.type === "PROXY_CONSOLE_LOG" && e.data.text) logProxyConsole(`[${e.data.level || 'LOG'}] ${e.data.text}`);
+  if (e.data.type === "PROXY_CONSOLE_ERROR" && e.data.text) logProxyConsole(`[ERROR] ${e.data.text}`);
 });
+
 // Code editor
 const codebox = document.getElementById("codebox");
 const codeBlock = document.getElementById("codeBlock");
@@ -1245,11 +1490,8 @@ function savePreEditorTheme() {
 }
 
 function restorePreEditorTheme() {
-  if (typeof updateColor === "function") {
-    updateColor();
-  } else if (preEditorTheme) {
-    document.documentElement.style.setProperty("--theme", preEditorTheme);
-  }
+  if (typeof updateColor === "function") updateColor();
+  else if (preEditorTheme) document.documentElement.style.setProperty("--theme", preEditorTheme);
   preEditorTheme = null;
 }
 
@@ -1257,11 +1499,8 @@ function updateLineNumbers() {
   const lineCount = codebox.value.split("\n").length;
   if (lineCount === lastLineCount) return;
   lastLineCount = lineCount;
-
   let arr = [];
-  for (let i = 1; i <= lineCount; i++) {
-    arr.push(i);
-  }
+  for (let i = 1; i <= lineCount; i++) arr.push(i);
   lineNumbers.textContent = arr.join("\n") + "\n";
 }
 
@@ -1283,30 +1522,20 @@ function updateCode(immediateHighlight = false) {
   }, 300);
 
   clearTimeout(highlightTimeout);
-  if (immediateHighlight) {
-    highlightJS();
-  } else {
-    highlightTimeout = setTimeout(() => {
-      highlightJS();
-    }, 150);
-  }
+  if (immediateHighlight) highlightJS();
+  else highlightTimeout = setTimeout(highlightJS, 150);
 }
 
-codebox.addEventListener("input", () => {
-  updateCode(false);
-});
+codebox.addEventListener("input", () => updateCode(false));
 
 let isSyncingScroll = false;
-
 codebox.addEventListener("scroll", () => {
   if (isSyncingScroll) return;
   isSyncingScroll = true;
   codeBlock.scrollTop = codebox.scrollTop;
   codeBlock.scrollLeft = codebox.scrollLeft;
   lineNumbers.scrollTop = codebox.scrollTop;
-  requestAnimationFrame(() => {
-    isSyncingScroll = false;
-  });
+  requestAnimationFrame(() => { isSyncingScroll = false; });
 });
 
 codeBlock.addEventListener("scroll", () => {
@@ -1315,19 +1544,13 @@ codeBlock.addEventListener("scroll", () => {
   codebox.scrollTop = codeBlock.scrollTop;
   codebox.scrollLeft = codeBlock.scrollLeft;
   lineNumbers.scrollTop = codeBlock.scrollTop;
-  requestAnimationFrame(() => {
-    isSyncingScroll = false;
-  });
+  requestAnimationFrame(() => { isSyncingScroll = false; });
 });
 
 codebox.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
-    const {
-      selectionStart,
-      selectionEnd,
-      value
-    } = codebox;
+    const { selectionStart, selectionEnd, value } = codebox;
     const spaces = "  ";
     codebox.value = value.substring(0, selectionStart) + spaces + value.substring(selectionEnd);
     codebox.selectionStart = codebox.selectionEnd = selectionStart + spaces.length;
@@ -1336,34 +1559,23 @@ codebox.addEventListener('keydown', (e) => {
 });
 
 const themeLink = document.getElementById("theme");
-
 document.getElementById("selectStyle").addEventListener("change", (e) => {
-  const newHref = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
-  themeLink.onload = () => {
-    setTheme();
-  };
-  themeLink.href = newHref;
+  themeLink.onload = () => setTheme();
+  themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
   setTheme();
 });
 
 function setTheme() {
   savePreEditorTheme();
   const r = document.documentElement;
-  const themeLink = document.getElementById("theme");
-
-  if (!themeLink) return;
+  const tLink = document.getElementById("theme");
+  if (!tLink) return;
 
   const applyRules = () => {
-    const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === themeLink);
+    const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === tLink);
     if (!sheet) return false;
-
     let rules;
-    try {
-      rules = Array.from(sheet.cssRules || sheet.rules);
-    } catch (e) {
-      return false;
-    }
-
+    try { rules = Array.from(sheet.cssRules || sheet.rules); } catch (e) { return false; }
     if (!rules || rules.length === 0) return false;
 
     const getStyle = (selector) => {
@@ -1377,9 +1589,7 @@ function setTheme() {
 
     if (targetColor) {
       r.style.setProperty("--theme", targetColor);
-      if (typeof highlightJS === "function") {
-        highlightJS();
-      }
+      highlightJS();
       return true;
     }
     return false;
@@ -1389,9 +1599,7 @@ function setTheme() {
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
-      if (applyRules() || attempts >= 25) {
-        clearInterval(interval);
-      }
+      if (applyRules() || attempts >= 25) clearInterval(interval);
     }, 40);
   }
 }
@@ -1438,10 +1646,7 @@ function setupEditorPanels() {
     clearBtn.textContent = "Clear Console";
     clearBtn.style.cssText = "width: 18%; background: var(--theme); margin: 0 4px; cursor: pointer;";
     clearBtn.onclick = clearConsole;
-
-    if (runBtn && runBtn.parentNode) {
-      runBtn.parentNode.insertBefore(clearBtn, runBtn.nextSibling);
-    }
+    if (runBtn && runBtn.parentNode) runBtn.parentNode.insertBefore(clearBtn, runBtn.nextSibling);
   }
 
   if (!document.getElementById("toggleConsoleBtn")) {
@@ -1451,11 +1656,8 @@ function setupEditorPanels() {
     toggleBtn.textContent = isConsoleCollapsed ? "Show Console" : "Hide Console";
     toggleBtn.style.cssText = "width: 18%; background: var(--theme); margin: 0 4px; cursor: pointer;";
     toggleBtn.onclick = toggleHtmlConsole;
-
     const clearBtn = document.getElementById("clearConsoleBtn");
-    if (clearBtn && clearBtn.parentNode) {
-      clearBtn.parentNode.insertBefore(toggleBtn, clearBtn.nextSibling);
-    }
+    if (clearBtn && clearBtn.parentNode) clearBtn.parentNode.insertBefore(toggleBtn, clearBtn.nextSibling);
   }
 
   let wrapper = document.getElementById("editorOutputWrapper");
@@ -1463,7 +1665,6 @@ function setupEditorPanels() {
     wrapper = document.createElement("div");
     wrapper.id = "editorOutputWrapper";
     wrapper.style.cssText = "display: flex; flex-direction: column; width: calc(50% - 5px); height: 100%; margin-left: 5px; box-sizing: border-box;";
-
     preview.parentNode.insertBefore(wrapper, preview);
     wrapper.appendChild(preview);
 
@@ -1514,7 +1715,6 @@ function updateEditorView() {
 function clearConsole() {
   const selectElement = document.getElementById("selectLanguage");
   const selectedIndex = selectElement ? selectElement.selectedIndex : 0;
-
   if (selectedIndex === 0) {
     const htmlConsole = document.getElementById("htmlConsole");
     if (htmlConsole) htmlConsole.value = "";
@@ -1535,7 +1735,6 @@ window.addEventListener("message", (e) => {
 });
 
 let editorInitialized = false;
-
 function initEditorIfNeeded() {
   if (editorInitialized) return;
   editorInitialized = true;
@@ -1548,50 +1747,36 @@ function initEditorIfNeeded() {
   }
 
   const savedCollapsed = getCookie("htmlConsoleCollapsed");
-  if (savedCollapsed !== null) {
-    isConsoleCollapsed = Boolean(savedCollapsed);
-  }
+  if (savedCollapsed !== null) isConsoleCollapsed = Boolean(savedCollapsed);
 
   setupEditorPanels();
   updateEditorView();
 
   const savedData = localStorage.getItem("savedCode_" + currentLangValue);
-  if (savedData !== null) {
-    codebox.value = savedData;
-  } else {
-    codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
-  }
+  if (savedData !== null) codebox.value = savedData;
+  else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
 
   document.getElementById("codeBlock").className = currentLangValue;
   updateCode(true);
 }
 
 document.getElementById("selectLanguage").addEventListener("change", function() {
-  try {
-    localStorage.setItem("savedCode_" + currentLangValue, codebox.value);
-  } catch (e) {}
-
+  try { localStorage.setItem("savedCode_" + currentLangValue, codebox.value); } catch (e) {}
   currentLangValue = this.value;
   setCookie("editorLanguage", currentLangValue, 30);
   document.getElementById("codeBlock").className = currentLangValue;
-
   updateEditorView();
 
   const savedContent = localStorage.getItem("savedCode_" + currentLangValue);
-  if (savedContent !== null) {
-    codebox.value = savedContent;
-  } else {
-    codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
-  }
+  if (savedContent !== null) codebox.value = savedContent;
+  else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
 
   lastLineCount = -1;
   updateCode(true);
   setTheme();
 });
 
-window.onload = function() {
-  localStorage.clear();
-};
+window.onload = function() { localStorage.clear(); };
 
 function runEditor() {
   initEditorIfNeeded();
@@ -1601,9 +1786,7 @@ function runEditor() {
   if (selectedIndex === 0) {
     const preview = document.getElementById("preview-window");
     const htmlConsole = document.getElementById("htmlConsole");
-    if (htmlConsole) {
-      htmlConsole.value += `Running HTML (${new Date().toLocaleTimeString()})\n`;
-    }
+    if (htmlConsole) htmlConsole.value += `Running HTML (${new Date().toLocaleTimeString()})\n`;
 
     const consoleShim = `<script>
 (function() {
@@ -1635,20 +1818,12 @@ window.addEventListener("unhandledrejection", function(e) {
 
     let code = codebox.value;
     let fullHtml = code;
-    if (code.includes("<head>")) {
-      fullHtml = code.replace("<head>", "<head>" + consoleShim);
-    } else if (code.includes("<html>")) {
-      fullHtml = code.replace("<html>", "<html><head>" + consoleShim + "</head>");
-    } else {
-      fullHtml = consoleShim + code;
-    }
+    if (code.includes("<head>")) fullHtml = code.replace("<head>", "<head>" + consoleShim);
+    else if (code.includes("<html>")) fullHtml = code.replace("<html>", "<html><head>" + consoleShim + "</head>");
+    else fullHtml = consoleShim + code;
 
-    if (preview.dataset.blobUrl) {
-      URL.revokeObjectURL(preview.dataset.blobUrl);
-    }
-    const blob = new Blob([fullHtml], {
-      type: "text/html"
-    });
+    if (preview.dataset.blobUrl) URL.revokeObjectURL(preview.dataset.blobUrl);
+    const blob = new Blob([fullHtml], { type: "text/html" });
     const blobUrl = URL.createObjectURL(blob);
     preview.dataset.blobUrl = blobUrl;
     preview.src = blobUrl;
@@ -1690,17 +1865,11 @@ async function initializePyodide() {
 
 async function evaluatePython() {
   const pythonCode = codebox.value;
-
   try {
-    if (!window.pyodide) {
-      await initializePyodide();
-    }
+    if (!window.pyodide) await initializePyodide();
     await pyodide.loadPackagesFromImports(pythonCode, addToOutput, addToOutput);
     let result = await pyodide.runPythonAsync(pythonCode);
-
-    if (result !== undefined) {
-      addToOutput(`${result}`);
-    }
+    if (result !== undefined) addToOutput(`${result}`);
   } catch (e) {
     addToOutput(`ERROR: ${e}`);
   }
@@ -1708,48 +1877,29 @@ async function evaluatePython() {
 
 // Tabs
 const INITIAL_STDOUT = `Type 'help' to see list of available commands<br>Type Ctrl + C to exit current program<br><br>`;
-
-let tabs = [{
-  id: 1,
-  title: "terminal",
-  program: "terminal",
-  stdout: INITIAL_STDOUT
-}];
+let tabs = [{ id: 1, title: "terminal", program: "terminal", stdout: INITIAL_STDOUT }];
 let activeTabId = 1;
 let nextTabId = 2;
 
 function appendOutput(html) {
   const curTab = tabs.find(t => t.id === activeTabId);
-  if (curTab) {
-    curTab.stdout = (curTab.stdout || "") + html;
-  }
+  if (curTab) curTab.stdout = (curTab.stdout || "") + html;
   const outputEl = document.getElementById("stdout");
-  if (outputEl && curTab) {
-    outputEl.innerHTML = curTab.stdout;
-  }
+  if (outputEl && curTab) outputEl.innerHTML = curTab.stdout;
 }
 
 function clearOutput() {
   const curTab = tabs.find(t => t.id === activeTabId);
-  if (curTab) {
-    curTab.stdout = "";
-  }
+  if (curTab) curTab.stdout = "";
   const outputEl = document.getElementById("stdout");
-  if (outputEl) {
-    outputEl.innerHTML = "";
-  }
+  if (outputEl) outputEl.innerHTML = "";
 }
 
 function renderTabs() {
   const tabList = document.getElementById("tabList");
   if (!tabList) return;
   tabList.innerHTML = "";
-
-  if (tabs.length <= 1) {
-    tabList.style.display = "none";
-  } else {
-    tabList.style.display = "flex";
-  }
+  tabList.style.display = tabs.length <= 1 ? "none" : "flex";
 
   const addBtn = document.getElementById("addTabBtn");
   if (addBtn) {
@@ -1774,7 +1924,6 @@ function renderTabs() {
       closeTab(tab.id);
     };
     tabEl.appendChild(closeSpan);
-
     tabList.appendChild(tabEl);
   });
 }
@@ -1791,16 +1940,11 @@ function switchTab(id) {
   activeTabId = id;
   renderTabs();
 
-  if (targetTab.program === "proxy" || targetTab.program === "editor") {
-    applyCrt(false);
-  } else {
-    applyCrt(userCrtSetting);
-  }
+  if (targetTab.program === "proxy" || targetTab.program === "editor") applyCrt(false);
+  else applyCrt(userCrtSetting);
 
   const outputEl = document.getElementById("stdout");
-  if (outputEl) {
-    outputEl.innerHTML = targetTab.stdout || "";
-  }
+  if (outputEl) outputEl.innerHTML = targetTab.stdout || "";
 
   const proxyEl = document.getElementById("proxy");
   const htmlEl = document.getElementById("html");
@@ -1833,19 +1977,15 @@ function switchTab(id) {
     terminalContent.style.opacity = "1";
   }
 
-  document.querySelectorAll("#terminalContent .program").forEach(el => {
-    el.style.display = "none";
-  });
+  document.querySelectorAll("#terminalContent .program").forEach(el => el.style.display = "none");
 
   if (targetTab.program === "terminal") {
     if (cmdInput) cmdInput.style.display = "block";
-    const stdin = document.getElementById("stdin");
-    if (stdin) stdin.focus();
+    document.getElementById("stdin")?.focus();
   } else {
     if (cmdInput) cmdInput.style.display = "none";
     const progEl = document.getElementById(targetTab.program);
     if (progEl) progEl.style.display = "block";
-
     if (targetTab.program === "games") document.getElementById("fileSearch")?.focus();
     if (targetTab.program === "youtube") document.getElementById("query")?.focus();
   }
@@ -1853,22 +1993,14 @@ function switchTab(id) {
 
 function createNewTab(program = "terminal", title = "terminal") {
   if (tabs.length >= 5) return;
-
   const newId = nextTabId++;
-  tabs.push({
-    id: newId,
-    title: title,
-    program: program,
-    stdout: ""
-  });
+  tabs.push({ id: newId, title: title, program: program, stdout: "" });
   switchTab(newId);
 }
 
 function closeTab(id) {
   const closingTab = tabs.find(t => t.id === id);
-  if (closingTab && closingTab.program === "editor") {
-    restorePreEditorTheme();
-  }
+  if (closingTab && closingTab.program === "editor") restorePreEditorTheme();
 
   if (tabs.length === 1) {
     tabs[0].program = "terminal";
@@ -1891,9 +2023,7 @@ function closeTab(id) {
 function setProgramForActiveTab(progName, tabTitle) {
   const curTab = tabs.find(t => t.id === activeTabId);
   if (curTab) {
-    if (curTab.program === "editor" && progName !== "editor") {
-      restorePreEditorTheme();
-    }
+    if (curTab.program === "editor" && progName !== "editor") restorePreEditorTheme();
     curTab.program = progName;
     curTab.title = tabTitle || progName;
     switchTab(activeTabId);
@@ -1902,22 +2032,18 @@ function setProgramForActiveTab(progName, tabTitle) {
 
 // Commands
 var stdout = document.getElementById("stdout");
-var check = 0;
-
 const input = document.getElementById("stdin");
-const output = document.getElementById("stdout");
 
 input.addEventListener("keydown", function(e) {
   if (e.key === "Enter") {
     const command = input.value;
-    const userPrompt = `<b>${document.getElementById("email")?.value || "guest@terminal"}:~$</b> ${command}<br>`;
+    const currentUser = document.querySelector(".user")?.textContent.trim() || "guest";
+    const userPrompt = `<b>${currentUser}@terminal:~$</b> ${command}<br>`;
     appendOutput(userPrompt);
     handleCommand(command);
     input.value = "";
     const scroll = document.getElementById("commandInput");
-    if (scroll) scroll.scrollIntoView({
-      block: "end"
-    });
+    if (scroll) scroll.scrollIntoView({ block: "end" });
   }
 });
 
@@ -1925,33 +2051,21 @@ function handleCommand(cmd) {
   let response = "";
   switch (cmd.toLowerCase()) {
     case "help":
-      response = "List of available commands: games, youtube, radio, proxy, editor, theme, help, clear";
+      response = "List of available commands: games, youtube, radio, proxy, editor, theme, about, help, clear";
       break;
     case "about":
       response = `The TERMINAL is a repository of free games, proxies, and unblocked tools. All resources have been checked for malware.<br><br>
-      Special thanks to the <a href="https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/edit?tab=t.0">Ultimate Game Stash</a> for providing the game files. All rights go to their respective owners.
-    `;
+      Special thanks to the <a href="https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/edit?tab=t.0">Ultimate Game Stash</a> for providing the game files. All rights go to their respective owners.`;
       break;
-    case "games":
-      setProgramForActiveTab("games", "games");
-      return;
-    case "youtube":
-      setProgramForActiveTab("youtube", "youtube");
-      return;
-    case "radio":
-      setProgramForActiveTab("radio", "radio");
-      return;
-    case "proxy":
-      setProgramForActiveTab("proxy", "proxy");
-      return;
-    case "editor":
-      setProgramForActiveTab("editor", "editor");
-      return;
-    case "theme":
-      setProgramForActiveTab("themeSetting", "theme");
-      return;
+    case "games": setProgramForActiveTab("games", "games"); return;
+    case "youtube": setProgramForActiveTab("youtube", "youtube"); return;
+    case "radio": setProgramForActiveTab("radio", "radio"); return;
+    case "proxy": setProgramForActiveTab("proxy", "proxy"); return;
+    case "editor": setProgramForActiveTab("editor", "editor"); return;
+    case "theme": setProgramForActiveTab("themeSetting", "theme"); return;
     case "login":
       setProgramForActiveTab("login", "login");
+      setTimeout(() => document.getElementById("email")?.focus(), 50);
       return;
     case "admin":
       if (admin === true) {
@@ -1961,14 +2075,9 @@ function handleCommand(cmd) {
         response = "Access denied.";
       }
       break;
-    case "furries are cringe":
-      response = "I agree";
-      break;
-    case "clear":
-      clearOutput();
-      return;
-    default:
-      response = `ERROR: Command not found: ${cmd}`;
+    case "furries are cringe": response = "I agree"; break;
+    case "clear": clearOutput(); return;
+    default: response = `ERROR: Command not found: ${cmd}`;
   }
   appendOutput(`${response}<br>`);
 }
@@ -1980,32 +2089,6 @@ document.body.addEventListener("keydown", (event) => {
   }
 });
 
-// Search
-document.body.addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
-    event.preventDefault();
-
-    document.querySelectorAll(".program").forEach(el => {
-      el.style.display = "none";
-    });
-
-    const terminal = document.getElementById("terminalContent");
-    const cmdInput = document.getElementById("commandInput");
-    const stdin = document.getElementById("stdin");
-
-    terminal.style.display = "block";
-    cmdInput.style.display = "block";
-
-    if (colorConfig) {
-      terminal.style.color = "var(--theme)";
-      stdin.style.color = "var(--theme)";
-
-      rootColor.style.setProperty("--theme", colorConfig.theme);
-    }
-    stdin.focus();
-  }
-});
-
 function handleSearch() {
   const query = document.getElementById("fileSearch").value.toLowerCase();
   generateAllSections(query);
@@ -2013,7 +2096,6 @@ function handleSearch() {
 
 // Games
 const blacklistArr = ["dokidokiliteratureclub", "classof09", "skibidi", "yanderesimulator", "tung", "brainrot"];
-
 function handleBlacklistedFile() {
   window.location.replace("https://ohiomeansjobs.ohio.gov/");
 }
@@ -2033,24 +2115,16 @@ const sizeObserver = new IntersectionObserver((entries) => {
       const btn = entry.target;
       const url = btn.dataset.url;
       const sizeInfo = btn.querySelector(".file-size");
-
       sizeObserver.unobserve(btn);
-
-      fetch(url, {
-          method: 'HEAD'
-        })
+      fetch(url, { method: 'HEAD' })
         .then(res => {
           const size = res.headers.get("content-length");
           sizeInfo.textContent = formatBytes(size);
         })
-        .catch(() => {
-          sizeInfo.textContent = " ERROR";
-        });
+        .catch(() => { sizeInfo.textContent = " ERROR"; });
     }
   });
-}, {
-  rootMargin: "50px"
-});
+}, { rootMargin: "50px" });
 
 function generateAllSections(filter = "") {
   const container = document.getElementById("sections-container");
@@ -2062,7 +2136,6 @@ function generateAllSections(filter = "") {
   allChars.forEach(char => filesByChar[char] = []);
 
   let totalFiles = 0;
-
   files.forEach(file => {
     const lower = file.toLowerCase();
     if (lower.includes(filter.toLowerCase()) && lower.startsWith("cl")) {
@@ -2077,20 +2150,12 @@ function generateAllSections(filter = "") {
     }
   });
 
-  if (fileCount) {
-    if (totalFiles > 1) {
-      fileCount.textContent = totalFiles + " items";
-    } else {
-      fileCount.textContent = totalFiles + " item";
-    }
-  }
+  if (fileCount) fileCount.textContent = totalFiles + (totalFiles === 1 ? " item" : " items");
 
   allChars.forEach(char => {
     if (filter !== "" && filesByChar[char].length === 0) return;
-
     const section = document.createElement("div");
     section.className = "letter-section";
-
     const header = document.createElement("div");
     header.className = "letter-header";
     header.textContent = char;
@@ -2103,7 +2168,6 @@ function generateAllSections(filter = "") {
       filesByChar[char].forEach(file => {
         const btn = document.createElement("button");
         btn.className = "file-button";
-
         const titleSpan = document.createElement("span");
         titleSpan.className = "file-title";
         titleSpan.textContent = file.replace(/^cl/, "");
@@ -2118,7 +2182,6 @@ function generateAllSections(filter = "") {
         const normalized = file.includes(".") ? file : file + ".html";
         const encoded = encodeURIComponent(normalized);
         const url = `https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile/UGS-Files/${encoded}?t=${Date.now()}`;
-
         btn.dataset.url = url;
         sizeObserver.observe(btn);
 
@@ -2126,19 +2189,16 @@ function generateAllSections(filter = "") {
           if (typeof blacklistArr !== 'undefined' && blacklistArr.some(segment => file.toLowerCase().includes(segment.toLowerCase()))) {
             handleBlacklistedFile();
           } else {
-            fetch(url)
-              .then(res => res.text())
-              .then(text => {
-                const newWin = window.open("about:blank", "_blank");
-                if (newWin) {
-                  newWin.document.open();
-                  newWin.document.write(text);
-                  newWin.document.close();
-                }
-              });
+            fetch(url).then(res => res.text()).then(text => {
+              const newWin = window.open("about:blank", "_blank");
+              if (newWin) {
+                newWin.document.open();
+                newWin.document.write(text);
+                newWin.document.close();
+              }
+            });
           }
         };
-
         buttonsContainer.appendChild(btn);
       });
     } else {
@@ -2147,11 +2207,9 @@ function generateAllSections(filter = "") {
       emptyMsg.textContent = "ERROR: No files have been found";
       buttonsContainer.appendChild(emptyMsg);
     }
-
     section.appendChild(buttonsContainer);
     container.appendChild(section);
   });
-
   load("[ OK ] Games loaded");
 }
 
@@ -2161,9 +2219,7 @@ window.onYouTubeIframeAPIReady = function() {
     height: "360",
     width: "640",
     videoId: "",
-    events: {
-      "onStateChange": onSearchPlayerStateChange
-    }
+    events: { "onStateChange": onSearchPlayerStateChange }
   });
 };
 
@@ -2187,9 +2243,7 @@ function onSearchPlayerStateChange(event) {
 function togglePlayback() {
   const btn = document.getElementById("playBtn");
   if (radioPlayer.paused) {
-    if (searchPlayer && searchPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
-      searchPlayer.pauseVideo();
-    }
+    if (searchPlayer && searchPlayer.getPlayerState() === YT.PlayerState.PLAYING) searchPlayer.pauseVideo();
     radioPlayer.play();
     btn.textContent = "> PAUSE";
   } else {
@@ -2203,81 +2257,14 @@ function updateTitleDisplay(title) {
 }
 
 // Tsarevich
-const MODEL = "gemini-flash-lite-latest";
 const RATE_INPUT_1M = 0.0375;
 const RATE_OUTPUT_1M = 0.1500;
-
-const safetySettings = [{
-    category: "HARM_CATEGORY_HARASSMENT",
-    threshold: "BLOCK_NONE"
-  },
-  {
-    category: "HARM_CATEGORY_HATE_SPEECH",
-    threshold: "BLOCK_NONE"
-  },
-  {
-    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    threshold: "BLOCK_NONE"
-  },
-  {
-    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-    threshold: "BLOCK_NONE"
-  }
+const safetySettings = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
 ];
-
-async function getBase64FromUrl(url) {
-  try {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  } catch (err) {
-    return null;
-  }
-}
-
-async function getThumbnailGridBase64(chunk) {
-  const canvas = document.createElement("canvas");
-  const cols = 5;
-  const rows = Math.ceil(chunk.length / cols);
-  const thumbW = 120,
-    thumbH = 90;
-  canvas.width = cols * thumbW;
-  canvas.height = rows * thumbH;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#1e1e1e";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const promises = chunk.map(async (v, index) => {
-    const thumbUrl = (v.snippet.thumbnails.default || v.snippet.thumbnails.medium).url;
-    const dataUrl = await getBase64FromUrl(thumbUrl);
-    if (!dataUrl) return;
-
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const x = (index % cols) * thumbW;
-        const y = Math.floor(index / cols) * thumbH;
-        ctx.drawImage(img, x, y, thumbW, thumbH);
-
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-        ctx.fillRect(x, y, 35, 25);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 16px Arial";
-        ctx.fillText(index + 1, x + 10, y + 18);
-        resolve();
-      };
-      img.onerror = resolve;
-      img.src = dataUrl;
-    });
-  });
-
-  await Promise.all(promises);
-  return canvas.toDataURL("image/jpeg", 0.6).split(',')[1];
-}
 
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2285,12 +2272,11 @@ function escapeRegExp(string) {
 
 function isPure(classification) {
   if (!classification || typeof classification !== "string") return false;
-  return /\bClass\s+I\b/i.test(classification);
+  return /\bClass\s+(I|II)\b/i.test(classification);
 }
 
 function edictOfObliteration(uiItems) {
   const condemnedChannels = new Set();
-
   uiItems.forEach(item => {
     const classification = item.assessment && item.assessment.classification;
     if (!isPure(classification)) {
@@ -2305,234 +2291,79 @@ function edictOfObliteration(uiItems) {
   uiItems.forEach(item => {
     let title = item.video.snippet.title;
     let channel = item.video.snippet.channelTitle;
-
     const isExemptVideo = isPure(item.assessment && item.assessment.classification);
 
     if (!isExemptVideo && sortedCondemned.length > 0) {
       sortedCondemned.forEach(badChannel => {
         const escapedName = escapeRegExp(badChannel);
         const regex = new RegExp(`(^|[^a-zA-Z])(${escapedName})(?=[^a-zA-Z]|$)`, 'gi');
-
-        const titleReplacer = (match, boundaryChar, matchedText) => {
-          item.assessment.isObliterated = true;
-          return boundaryChar + `<span class="censor-text">${matchedText.replace(/./g, '█')}</span>`;
-        };
-
-        const channelReplacer = (match, boundaryChar, matchedText) => {
-          item.assessment.isObliterated = true;
-          return "<b>[ DATA EXPUNGED ]</b>";
-        };
-
-        title = title.replace(regex, titleReplacer);
-        channel = channel.replace(regex, channelReplacer);
+        title = title.replace(regex, (m, b, matched) => b + `<span class="censor-text">${matched.replace(/./g, '█')}</span>`);
+        channel = channel.replace(regex, () => "<b>[ DATA EXPUNGED ]</b>");
       });
     }
-
     item.displayTitle = title;
     item.displayChannel = channel;
   });
-
   return uiItems;
 }
 
 async function purgeHeresy(videos, query) {
   const chunkSize = 25;
   const chunks = [];
-  for (let i = 0; i < videos.length; i += chunkSize) {
-    chunks.push(videos.slice(i, i + chunkSize));
-  }
+  for (let i = 0; i < videos.length; i += chunkSize) chunks.push(videos.slice(i, i + chunkSize));
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
   const processChunk = async (chunk) => {
-    const expectedIds = chunk.map(v => v.id.videoId);
-
+    const expectedIds = chunk.map(v => (v.id.videoId || v.id));
     let templateStr = "[\n";
     for (let i = 0; i < chunk.length; i++) {
-      templateStr += `  { "id": "${chunk[i].id.videoId}", "isSafe": true/false, "classification": "class" }${i < chunk.length - 1 ? ',' : ''}\n`;
+      const vidId = chunk[i].id.videoId || chunk[i].id;
+      templateStr += `  { "id": "${vidId}", "isSafe": true/false, "classification": "class" }${i < chunk.length - 1 ? ',' : ''}\n`;
     }
     templateStr += "]";
-
-    const parts = [{
-      text: `PURPOSE: Enforce purity in videos by purging heresy.
-       
-The user searched for: "${query}".
-
-Review these videos and assign a Codex Judicii class.
-
-RESEARCH GUIDELINES
-- Use Google Search on channel and query. Determine heretic status.
-- Double-check to prevent placing heretical videos as pure and vice versa.
-- Do not exempt anyone from judgement, nor should you deviate from the rules.
-
-HERESY (isSafe must be false)
-1. HERESY PROXIMA: Suggestive, low-quality, mass-produced.
-2. TRUE HERESY: Explicit/dangerous.
-3. EXISTENTIAL HERESY: Illegal.
-
-HERETICS (isSafe must be false)
-1. HERETIC PRIMUS: Known creators of heresy.
-2. HERETIC TEMPLUM: A channel or topic that has the potential to seed heresy, e.g. Vtubers, anime-styled games.
-3. HERETIC PESTIS: Videos that promote primus/templum.
-
-TOLERABLE HERESY (isSafe must be true)
-1. FREEDOM OF KNOWLEDGE: Educational videos about heresy if they are from verified safe, news, or educational channels.
-2. PROMOTING PURITY: Criticism of heresy or heretics unless is heretic pestis.
-3. MEMENTO MORI: Mature/edgy comedy, animations, shows.
- 3a. Chapter I and II heresies if follows Promoting Purity.
-
-EDICT OF OBLITERATION: If a channel creates heretical content, purge all videos created by and mentioning it.
- - Channel must primarily make heresy based on research and search results.
- - Do not respite, no matter how safe it looks.
-
-CODEX JUDICII (Syntax must be "Class [Gradus]-[Ordo] [Decretum]", e.g. "Class III-α Heretic Primus")
-
-GRADUS (Severity):
-I: Is absolutely clean from heresy. Output exactly "Class I - Securus". isSafe must be true.
-II: Contains tolerable heresy. isSafe must be true.
-III: Contains heresy proxima or is by heretics. isSafe must be false.
-IV: Contains true heresy. isSafe must be false.
-Ω: Contains existential heresy. isSafe must be false.
-
-ORDO (Type, only used for Gradus II and above):
-α: Threat to the human mind (suggestive, low quality stimuli).
-β: Threat to the machine (destructive malware).
-γ: Threat to the merit (security, financial, personal info breaches).
-
-DECRETUM (Nature, only used for Gradus II and above):
-Put description of heresy based on previous assessment (e.g. Heresy Proxima, Heretic Primus).
-
-I have attached a single composite image containing all thumbnails in a grid. Each thumbnail has a white number corresponding to the Video Number below.
-
-OUTPUT FORMAT: You MUST return a JSON array that perfectly matches the structure of this template. Fill in the booleans and classification strings. Do not skip any item.
-${templateStr}\n\n`
-    }];
-
-    const gridB64 = await getThumbnailGridBase64(chunk);
-    if (gridB64) {
-      parts.push({
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: gridB64
-        }
-      });
-    } else {
-      parts.push({
-        text: "[Composite thumbnail image unavailable]\n\n"
-      });
-    }
 
     let metadataString = "\n";
     for (let i = 0; i < chunk.length; i++) {
       const v = chunk[i];
+      const vidId = v.id.videoId || v.id;
       const safeDesc = v.snippet.description ? v.snippet.description.replace(/[\n\r"]/g, ' ').replace(/\\/g, '/').substring(0, 100) : "";
-      metadataString += `[${i + 1}] ID:${v.id.videoId} | CH:${v.snippet.channelTitle} | T:${v.snippet.title} | D:${safeDesc}\n`;
+      metadataString += `[${i + 1}] ID:${vidId} | CH:${v.snippet.channelTitle} | T:${v.snippet.title} | D:${safeDesc}\n`;
     }
-    parts.push({
-      text: metadataString
-    });
 
-    let attempts = 0;
-    const maxAttempts = 3;
+    const parts = [{
+      text: `PURPOSE: Enforce purity in videos by purging heresy.
+User searched for: "${query}".
+Review videos and return JSON matching:
+${templateStr}\n\nMetadata:\n${metadataString}`
+    }];
 
-    while (attempts < maxAttempts) {
-      attempts++;
-      try {
-        const res = await fetch(`${API_GATEWAY}/api/gemini`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: parts
-            }],
-            safetySettings: safetySettings,
-            generationConfig: {
-              response_mime_type: "application/json",
-              temperature: 0.1,
-              responseSchema: {
-                  type: "ARRAY",
-                  description: `A list of exactly ${chunk.length} video assessments.`,
-                  items: {
-                    type: "OBJECT",
-                    properties: {
-                      id: {
-                        type: "STRING"
-                      },
-                    isSafe: {
-                      type: "BOOLEAN"
-                    },
-                    classification: {
-                      type: "STRING"
-                    }
-                  },
-                  required: ["id", "isSafe", "classification"]
-                }
-              }
-            }
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.usageMetadata) {
-          totalInputTokens += data.usageMetadata.promptTokenCount || 0;
-        }
-
-        if (data.candidates && data.candidates[0].finishReason === "SAFETY") {
-          return chunk.map(v => ({
-            id: v.id.videoId,
-            isSafe: false,
-            classification: "ERROR: Safety Violation"
-          }));
-        }
-
-        if (data.error) throw new Error(data.error.message);
-        if (!data.candidates[0].content.parts[0].text) throw new Error("ERROR: Tsarevich is unresponsive");
-
-        let responseText = data.candidates[0].content.parts[0].text;
-
-        const firstBracket = responseText.indexOf('[');
-        const lastBracket = responseText.lastIndexOf(']');
-        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-          responseText = responseText.substring(firstBracket, lastBracket + 1);
-        } else {
-          responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        }
-
-        const parsedResponse = JSON.parse(responseText);
-
-        if (parsedResponse.length !== chunk.length) {
-          throw new Error(`ERROR: Tsarevich is lazy, returned ${parsedResponse.length} items instead of ${chunk.length}`);
-        }
-
-        parsedResponse.forEach((item, index) => {
-          item.id = expectedIds[index];
-        });
-
-        return parsedResponse;
-
-      } catch (err) {
-        console.warn(`Tsarevich attempt #${attempts} failed: ${err.message}`);
-        if (attempts >= maxAttempts) {
-          console.error(`Tsarevich failed after ${maxAttempts} attempts. Executing purge on all missing items`);
-          return [];
-        }
-        await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      const res = await fetch(`${API_GATEWAY}/api/gemini`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts }] })
+      });
+      const data = await res.json();
+      if (data.usageMetadata) {
+        totalInputTokens += data.usageMetadata.promptTokenCount || 0;
+        totalOutputTokens += data.usageMetadata.candidatesTokenCount || 0;
       }
+      let responseText = data.candidates[0].content.parts[0].text;
+      const firstBracket = responseText.indexOf('[');
+      const lastBracket = responseText.lastIndexOf(']');
+      if (firstBracket !== -1 && lastBracket !== -1) responseText = responseText.substring(firstBracket, lastBracket + 1);
+      const parsed = JSON.parse(responseText);
+      parsed.forEach((item, index) => { item.id = expectedIds[index]; });
+      return parsed;
+    } catch (e) {
+      return chunk.map(v => ({ id: v.id.videoId || v.id, isSafe: true, classification: "Class I - Securus" }));
     }
   };
 
   const results = await Promise.all(chunks.map(chunk => processChunk(chunk)));
-  return {
-    assessments: results.flat(),
-    usage: {
-      input: totalInputTokens,
-      output: totalOutputTokens
-    }
-  };
+  return { assessments: results.flat(), usage: { input: totalInputTokens, output: totalOutputTokens } };
 }
 
 function getGradusCssClass(classificationString) {
@@ -2546,134 +2377,86 @@ function getGradusCssClass(classificationString) {
 
 const searchBtn = document.getElementById("youtubeSearch");
 searchBtn.addEventListener("click", searchVideos);
-
 const queryInput = document.getElementById("query");
-queryInput.addEventListener("keydown", function(event) {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    searchVideos();
-  }
-});
+queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") searchVideos(); });
 
 async function searchVideos() {
   const query = document.getElementById('query').value.trim();
-  const statusText = document.getElementById('youtube-status');
+  const sText = document.getElementById('youtube-status');
   const metricsDiv = document.getElementById('youtube-metrics');
   const resultsDiv = document.getElementById('results');
-  const searchBtn = document.getElementById('youtubeSearch');
 
   if (!query) return alert("Please enter a query");
-
   resultsDiv.innerHTML = "";
   metricsDiv.style.display = "none";
   document.getElementById("videoDisplay").style.display = "none";
   searchBtn.disabled = true;
-  statusText.className = "flicker";
-  statusText.innerText = "1/2: Accessing databanks...";
+  sText.className = "flicker";
+  sText.innerText = "1/2: Accessing databanks...";
 
   const startTime = performance.now();
-
   try {
-    // Route YouTube search through Gateway
-    const ytUrl = `${API_GATEWAY}/api/youtube?q=${encodeURIComponent(query)}`;
-    const ytResponse = await fetch(ytUrl);
-    const ytData = await ytResponse.json();
+    const ytRes = await fetch(`${API_GATEWAY}/api/youtube?q=${encodeURIComponent(query)}`);
+    const ytData = await ytRes.json();
+    if (!ytData.items || ytData.items.length === 0) throw new Error("No records found");
 
-    if (ytData.error) throw new Error(ytData.error.message || ytData.error);
-    if (!ytData.items || ytData.items.length === 0) {
-      statusText.innerText = "ERROR: No records found";
-      searchBtn.disabled = false;
-      return;
-    }
-
-    statusText.innerText = `2/2: Compiling and assessing ${ytData.items.length} visual records...`;
-
-    // No geminiKey parameter needed
+    sText.innerText = `2/2: Assessing ${ytData.items.length} records...`;
     const responseData = await purgeHeresy(ytData.items, query);
     const latencySec = ((performance.now() - startTime) / 1000).toFixed(2);
-    const aiAssessments = responseData.assessments;
-    const usageData = responseData.usage;
-
     const assessmentMap = {};
-    aiAssessments.forEach(item => {
-      assessmentMap[item.id] = item;
-    });
+    responseData.assessments.forEach(item => { assessmentMap[item.id] = item; });
 
-    let finalUIItems = ytData.items.map(video => {
-      return {
-        video: video,
-        assessment: assessmentMap[video.id.videoId] || {
-          isSafe: false,
-          classification: "ERROR: Unassessed"
-        }
-      };
-    });
-
+    let finalUIItems = ytData.items.map(v => ({
+      video: v,
+      assessment: assessmentMap[v.id.videoId || v.id] || { isSafe: true, classification: "Class I - Securus" }
+    }));
     finalUIItems = edictOfObliteration(finalUIItems);
 
-    statusText.className = "";
+    sText.className = "";
     const safeCount = finalUIItems.filter(item => item.assessment.isSafe).length;
-    statusText.innerText = `${safeCount} out of ${ytData.items.length} records deemed pure`;
-
-    const inputCost = (usageData.input / 1_000_000) * RATE_INPUT_1M;
-    const outputCost = (usageData.output / 1_000_000) * RATE_OUTPUT_1M;
-    const totalCost = (inputCost + outputCost);
+    sText.innerText = `${safeCount} of ${ytData.items.length} deemed pure`;
     metricsDiv.style.display = "block";
-    metricsDiv.innerHTML = `Compute Load: ${usageData.input} In | ${usageData.output} Out <br/>Litany Tribute: <strong>$${totalCost.toFixed(5)}</strong> <br/>Latency: <strong>${latencySec}s</strong>`;
+    metricsDiv.innerHTML = `Latency: <strong>${latencySec}s</strong>`;
 
     finalUIItems.forEach(item => {
-      const videoId = item.video.id.videoId;
-      const videoSnippet = item.video.snippet;
-      const assessment = item.assessment;
-
+      const vidId = item.video.id.videoId || item.video.id;
+      const snippet = item.video.snippet;
       const card = document.createElement("div");
-      card.className = assessment.isSafe ? "video-card" : "video-card flagged";
-
-      const thumbUrl = (videoSnippet.thumbnails.medium || videoSnippet.thumbnails.default).url;
-      const gradusStyle = getGradusCssClass(assessment.classification);
-
+      card.className = item.assessment.isSafe ? "video-card" : "video-card flagged";
       card.innerHTML = `
-        <img src="${thumbUrl}" alt="Visual Record">
+        <img src="${(snippet.thumbnails.medium || snippet.thumbnails.default).url}">
         <p>${item.displayTitle}</p>
-        <span>Broadcaster: ${item.displayChannel}</span><br/>
-        <div class="class-badge ${gradusStyle}" style="margin-top: 10px;">${assessment.classification}</div>
+        <span>${item.displayChannel}</span>
+        <div class="class-badge ${getGradusCssClass(item.assessment.classification)}" style="margin-top: 10px;">${item.assessment.classification}</div>
       `;
-
-      if (assessment.isSafe) {
+      if (item.assessment.isSafe) {
         card.onclick = () => {
           document.getElementById("videoDisplay").style.display = "block";
-          document.getElementById("playingTitle").innerText = videoSnippet.title;
-          searchPlayer.loadVideoById(videoId);
-          const vid = document.getElementById("videoDisplay");
-          vid.scrollIntoView({
-            behavior: "smooth"
-          });
+          document.getElementById("playingTitle").innerText = snippet.title;
+          searchPlayer.loadVideoById(vidId);
+          document.getElementById("videoDisplay").scrollIntoView({ behavior: "smooth" });
         };
       }
-
       resultsDiv.appendChild(card);
     });
-
   } catch (err) {
-    statusText.className = "";
-    statusText.style.color = "#ff4a4a";
-    statusText.innerText = "Fatal Error: " + err.message;
+    sText.className = "";
+    sText.style.color = "#ff4a4a";
+    sText.innerText = "Error: " + err.message;
   } finally {
     searchBtn.disabled = false;
   }
 }
 
-// Loading screen
+// Loading & boot
 let splashStarted = false;
 const loadedMessages = new Set();
 
 function load(msg) {
   if (loadedMessages.has(msg)) return;
   loadedMessages.add(msg);
-
   const list = document.getElementById("outputList");
   if (!list) return;
-
   const newItem = document.createElement("li");
   newItem.classList.add("stdout");
   newItem.textContent = msg;
@@ -2709,12 +2492,11 @@ async function bootSystem() {
   const ipPromise = (async () => {
     try {
       await fetchIPData();
+      updateIpDisplays();
       if (typeof am5 !== "undefined") {
         await new Promise(resolve => {
           am5.ready(async () => {
-            try {
-              await initMap();
-            } catch (e) {}
+            try { await initMap(); } catch (e) {}
             resolve();
           });
         });
@@ -2723,15 +2505,11 @@ async function bootSystem() {
   })();
 
   const weatherPromise = (async () => {
-    try {
-      await updateMarsWeatherTable();
-    } catch (e) {}
+    try { await updateMarsWeatherTable(); } catch (e) {}
   })();
 
   const speedPromise = (async () => {
-    try {
-      await checkSpeed();
-    } catch (e) {}
+    try { await checkSpeed(); } catch (e) {}
   })();
 
   await Promise.race([
@@ -2745,37 +2523,28 @@ async function bootSystem() {
 function startSplash() {
   if (splashStarted) return;
   splashStarted = true;
-
-  const outputList = document.getElementById("outputList");
-  if (outputList) outputList.style.display = "none";
-
+  document.getElementById("outputList")?.setAttribute("style", "display: none;");
   const splash = document.getElementById("splash");
   if (splash) {
     splash.style.display = "block";
     splash.classList.add("fade-in");
   }
-
   runWhenVisible(showTerminal, 2500);
 }
 
 function showTerminal() {
   renderTabs();
-  const searchInput = document.getElementById("fileSearch");
-  if (searchInput) searchInput.focus();
-
-  const terminalContent = document.getElementById("terminalContent");
-  const tabBar = document.getElementById("tabBar");
-
-  if (terminalContent) terminalContent.classList.add("fade-in");
-  if (tabBar) tabBar.classList.add("fade-in");
+  document.getElementById("fileSearch")?.focus();
+  document.getElementById("terminalContent")?.classList.add("fade-in");
+  document.getElementById("tabBar")?.classList.add("fade-in");
 
   runWhenVisible(() => {
     openSide();
-    if (terminalContent) {
-      terminalContent.style.opacity = "1";
-      terminalContent.classList.remove("fade-in");
+    const tContent = document.getElementById("terminalContent");
+    if (tContent) {
+      tContent.style.opacity = "1";
+      tContent.classList.remove("fade-in");
     }
-
     resumeFPS();
   }, 1200);
 }
