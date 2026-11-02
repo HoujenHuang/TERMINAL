@@ -26,12 +26,15 @@ function toggleBatterySaver() {
 
  if (!isActive) {
    Object.values(charts).forEach(chart => {
-     const ctx = chart.el.getContext("2d");
-     ctx.clearRect(0, 0, chart.el.width, chart.el.height);
+     if (chart && chart.el) {
+       const ctx = chart.el.getContext("2d");
+       ctx.clearRect(0, 0, chart.el.width, chart.el.height);
+     }
    });
    closeSide();
- } else if (!document.hidden && typeof resumeFPS === "function") {
-   resumeFPS();
+ } else if (!document.hidden) {
+   if (typeof resumeFPS === "function") resumeFPS();
+   if (admin && typeof renderAdminDashboard === "function") renderAdminDashboard();
  }
 }
 
@@ -172,8 +175,8 @@ const charts = {
    history: [],
    currentVal: 0,
    targetVal: 0,
-   max: 10,
-   targetMax: 10,
+   max: 5,
+   targetMax: 5,
    timeWindow: 60000,
    inverted: false
  },
@@ -182,20 +185,65 @@ const charts = {
    history: [],
    currentVal: 0,
    targetVal: 0,
-   max: 10,
-   targetMax: 10,
+   max: 5,
+   targetMax: 5,
    timeWindow: 60000,
    inverted: true
+ },
+ cpu: {
+   el: document.getElementById("cpuChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 100,
+   targetMax: 100,
+   timeWindow: 30000,
+   inverted: false
+ },
+ hostMem: {
+   el: document.getElementById("hostMemChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 100,
+   targetMax: 100,
+   timeWindow: 30000,
+   inverted: false
+ },
+ speedCombined: {
+   el: document.getElementById("speedCombinedChart"),
+   timeWindow: 60000,
+   max: 5,
+   targetMax: 5
+ },
+ adminNetCombined: {
+   el: document.getElementById("adminNetCombinedChart"),
+   historyEnpRx: [],
+   historyWgRx: [],
+   historyEnpTx: [],
+   historyWgTx: [],
+   currEnpRx: 0,
+   currWgRx: 0,
+   currEnpTx: 0,
+   currWgTx: 0,
+   timeWindow: 30000,
+   max: 10,
+   targetMax: 10
  }
 };
 
 function pauseChartTimeline(duration) {
  if (duration <= 0) return;
  Object.values(charts).forEach(chart => {
-   if (!chart || !chart.history) return;
-   for (let i = 0; i < chart.history.length; i++) {
-     chart.history[i].time += duration;
+   if (!chart) return;
+   if (chart.history) {
+     for (let i = 0; i < chart.history.length; i++) chart.history[i].time += duration;
    }
+   ['historyEnpRx', 'historyWgRx', 'historyEnpTx', 'historyWgTx'].forEach(prop => {
+     if (chart[prop]) {
+       for (let i = 0; i < chart[prop].length; i++) chart[prop][i].time += duration;
+     }
+   });
  });
 }
 
@@ -208,22 +256,34 @@ function pushChartMetric(key, value) {
 
  chart.targetVal = safeVal;
  chart.history.push({ time: now, val: safeVal });
-
- const minCeiling = key === "fps" ? 60 : (key === "memory" ? 20 : 5);
- let peak = minCeiling;
- for (let i = 0; i < chart.history.length; i++) {
-   if (chart.history[i].val > peak) peak = chart.history[i].val;
- }
- chart.targetMax = Math.max(minCeiling, Math.ceil(peak * 1.25));
 }
 
-function drawGraph(key, value) {
- if (key === "speed") {
-   pushChartMetric("speedDown", value);
- } else {
-   pushChartMetric(key, value);
- }
+function updateAdminGraphs(data) {
+  if (!data || !data.system) return;
+  const now = performance.now();
+
+  if (typeof data.system.cpuVal !== "undefined") {
+    pushChartMetric("cpu", data.system.cpuVal);
+  }
+
+  if (typeof data.system.memPercent !== "undefined") {
+    pushChartMetric("hostMem", data.system.memPercent);
+  }
+
+  if (data.system.interfaces) {
+    const enp = data.system.interfaces.enp0s31f6 || { rxRate: 0, txRate: 0 };
+    const wg = data.system.interfaces.wg0 || { rxRate: 0, txRate: 0 };
+    const chart = charts.adminNetCombined;
+
+    if (chart) {
+      chart.historyEnpRx.push({ time: now, val: enp.rxRate });
+      chart.historyWgRx.push({ time: now, val: wg.rxRate });
+      chart.historyEnpTx.push({ time: now, val: enp.txRate });
+      chart.historyWgTx.push({ time: now, val: wg.txRate });
+    }
+  }
 }
+window.updateAdminGraphs = updateAdminGraphs;
 
 function resizeHiDpiCanvas(canvas) {
  const dpr = window.devicePixelRatio || 1;
@@ -256,7 +316,9 @@ function parseRgbComponents(colorStr) {
 
 function renderChart(key, now) {
  const chart = charts[key];
- if (!chart || !chart.el) return;
+ if (!chart) return;
+ if (!chart.el) chart.el = document.getElementById(key === "cpu" ? "cpuChart" : (key === "hostMem" ? "hostMemChart" : `${key}Chart`));
+ if (!chart.el || chart.el.clientHeight <= 0) return;
 
  const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
  if (width <= 0 || height <= 0) return;
@@ -266,14 +328,18 @@ function renderChart(key, now) {
    chart.history.shift();
  }
 
+ const minCeiling = (key === "cpu" || key === "hostMem") ? 100 : (key === "fps" ? 60 : (key === "memory" ? 20 : 5));
+ let peak = minCeiling;
+ for (let i = 0; i < chart.history.length; i++) {
+   if (chart.history[i].val > peak) peak = chart.history[i].val;
+ }
+ chart.targetMax = Math.max(minCeiling, Math.ceil(peak * 1.25));
+
  chart.max += (chart.targetMax - chart.max) * 0.05;
  const safeMax = Math.max(1, chart.max || 1);
  chart.currentVal += (chart.targetVal - chart.currentVal) * 0.12;
 
- const padLeft = 34;
- const padRight = 8;
- const padTop = 6;
- const padBottom = 16;
+ const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
  const plotWidth = Math.max(10, width - padLeft - padRight);
  const plotHeight = Math.max(10, height - padTop - padBottom);
 
@@ -287,19 +353,14 @@ function renderChart(key, now) {
  ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
  ctx.setLineDash([]);
 
- const gridStepsY = 2;
  ctx.beginPath();
- for (let i = 0; i <= gridStepsY; i++) {
-   const y = Math.round(padTop + (plotHeight / gridStepsY) * i) + 0.5;
-   ctx.moveTo(padLeft, y);
-   ctx.lineTo(padLeft + plotWidth, y);
+ for (let i = 0; i <= 2; i++) {
+   const y = Math.round(padTop + (plotHeight / 2) * i) + 0.5;
+   ctx.moveTo(padLeft, y); ctx.lineTo(padLeft + plotWidth, y);
  }
-
- const gridStepsX = 4;
- for (let i = 0; i <= gridStepsX; i++) {
-   const x = Math.round(padLeft + (plotWidth / gridStepsX) * i) + 0.5;
-   ctx.moveTo(x, padTop);
-   ctx.lineTo(x, padTop + plotHeight);
+ for (let i = 0; i <= 4; i++) {
+   const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+   ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
  }
  ctx.stroke();
 
@@ -318,9 +379,9 @@ function renderChart(key, now) {
 
  ctx.textAlign = "left";
  ctx.textBaseline = "top";
- ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 3);
+ ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
  ctx.textAlign = "right";
- ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 3);
+ ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
 
  ctx.save();
  ctx.beginPath();
@@ -331,44 +392,30 @@ function renderChart(key, now) {
    const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
    const x = padLeft + progress * plotWidth;
    const normalizedVal = Math.min(Math.max(value, 0), safeMax);
-
-   let y;
-   if (chart.inverted) {
-     y = padTop + (normalizedVal / safeMax) * plotHeight;
-   } else {
-     y = (padTop + plotHeight) - (normalizedVal / safeMax) * plotHeight;
-   }
+   const y = chart.inverted ? (padTop + (normalizedVal / safeMax) * plotHeight) : ((padTop + plotHeight) - (normalizedVal / safeMax) * plotHeight);
    return { x, y };
  };
 
  const rawPoints = chart.history;
  if (rawPoints.length > 0) {
    let points = rawPoints.map(item => getCoordinates(item.time, item.val));
-
    if (points[0].x > padLeft) {
      points.unshift({ x: padLeft, y: points[0].y });
    } else {
      let crossIdx = -1;
      for (let i = 0; i < points.length - 1; i++) {
        if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
-         crossIdx = i;
-         break;
+         crossIdx = i; break;
        }
      }
-
      if (crossIdx !== -1) {
-       const p0 = points[crossIdx];
-       const p1 = points[crossIdx + 1];
+       const p0 = points[crossIdx], p1 = points[crossIdx + 1];
        const dx = p1.x - p0.x;
        const ratio = dx > 0 ? Math.min(1, Math.max(0, (padLeft - p0.x) / dx)) : 0;
-       const yCross = p0.y + ratio * (p1.y - p0.y);
        points = points.slice(crossIdx + 1);
-       points.unshift({ x: padLeft, y: yCross });
-     } else {
-       points = [{ x: padLeft, y: points[points.length - 1].y }];
+       points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
      }
    }
-
    points.push({ x: padLeft + plotWidth, y: getCoordinates(now, chart.currentVal).y });
 
    if (points.length >= 2) {
@@ -389,12 +436,7 @@ function renderChart(key, now) {
      ctx.lineTo(points[0].x, baselineY);
      ctx.closePath();
 
-     const gradient = ctx.createLinearGradient(
-       0,
-       chart.inverted ? padTop : padTop + plotHeight,
-       0,
-       chart.inverted ? padTop + plotHeight : padTop
-     );
+     const gradient = ctx.createLinearGradient(0, chart.inverted ? padTop : padTop + plotHeight, 0, chart.inverted ? padTop + plotHeight : padTop);
      gradient.addColorStop(0, `rgba(${tr}, ${tg}, ${tb}, 0.28)`);
      gradient.addColorStop(1, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
      ctx.fillStyle = gradient;
@@ -408,8 +450,282 @@ function renderChart(key, now) {
      ctx.stroke();
    }
  }
-
  ctx.restore();
+}
+
+function renderCombinedSpeedChart(now) {
+  const chart = charts.speedCombined;
+  if (!chart) return;
+  if (!chart.el) chart.el = document.getElementById("speedCombinedChart");
+  if (!chart.el || chart.el.clientHeight <= 0) return;
+
+  const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
+  if (width <= 0 || height <= 0) return;
+
+  const downHistory = charts.speedDown.history;
+  const upHistory = charts.speedUp.history;
+
+  const oldestAllowed = now - chart.timeWindow - 4000;
+  while (downHistory.length > 0 && downHistory[0].time < oldestAllowed) downHistory.shift();
+  while (upHistory.length > 0 && upHistory[0].time < oldestAllowed) upHistory.shift();
+
+  let peak = 5;
+  for (let i = 0; i < downHistory.length; i++) if (downHistory[i].val > peak) peak = downHistory[i].val;
+  for (let i = 0; i < upHistory.length; i++) if (upHistory[i].val > peak) peak = upHistory[i].val;
+
+  chart.targetMax = Math.max(5, Math.ceil(peak * 1.25));
+  chart.max += (chart.targetMax - chart.max) * 0.05;
+  const safeMax = Math.max(1, chart.max || 1);
+
+  const lastDown = downHistory.length > 0 ? downHistory[downHistory.length - 1].val : charts.speedDown.targetVal;
+  charts.speedDown.currentVal += (lastDown - charts.speedDown.currentVal) * 0.15;
+
+  const lastUp = upHistory.length > 0 ? upHistory[upHistory.length - 1].val : charts.speedUp.targetVal;
+  charts.speedUp.currentVal += (lastUp - charts.speedUp.currentVal) * 0.15;
+
+  const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
+  const plotWidth = Math.max(10, width - padLeft - padRight);
+  const plotHeight = Math.max(10, height - padTop - padBottom);
+  const midY = Math.round(padTop + plotHeight / 2);
+
+  const style = getComputedStyle(document.documentElement);
+  const themeColor = style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+  const [tr, tg, tb] = parseRgbComponents(themeColor);
+
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft + plotWidth, padTop);
+  ctx.moveTo(padLeft, midY); ctx.lineTo(padLeft + plotWidth, midY);
+  ctx.moveTo(padLeft, padTop + plotHeight); ctx.lineTo(padLeft + plotWidth, padTop + plotHeight);
+
+  for (let i = 0; i <= 4; i++) {
+    const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+    ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = themeColor;
+  ctx.font = "8px 'Courier New', monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  ctx.fillText(`+${Math.round(safeMax)}`, padLeft - 4, padTop + 2);
+  ctx.fillText("0", padLeft - 4, midY);
+  ctx.fillText(`-${Math.round(safeMax)}`, padLeft - 4, padTop + plotHeight - 2);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
+  ctx.textAlign = "right";
+  ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
+  ctx.clip();
+
+  const drawHalfCurve = (rawPoints, isDownlink, currentVal) => {
+    if (rawPoints.length === 0) return;
+    const halfH = midY - padTop;
+    const getCoords = (timestamp, value) => {
+      const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
+      const x = padLeft + progress * plotWidth;
+      const norm = Math.min(Math.max(value, 0), safeMax) / safeMax;
+      const y = isDownlink ? midY - (norm * halfH) : midY + (norm * halfH);
+      return { x, y };
+    };
+
+    let points = rawPoints.map(p => getCoords(p.time, p.val));
+    if (points[0].x > padLeft) {
+      points.unshift({ x: padLeft, y: points[0].y });
+    } else {
+      let crossIdx = -1;
+      for (let i = 0; i < points.length - 1; i++) {
+        if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
+          crossIdx = i; break;
+        }
+      }
+      if (crossIdx !== -1) {
+        const p0 = points[crossIdx], p1 = points[crossIdx + 1];
+        const dx = p1.x - p0.x;
+        const ratio = dx > 0 ? (padLeft - p0.x) / dx : 0;
+        points = points.slice(crossIdx + 1);
+        points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
+      }
+    }
+
+    points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
+
+    if (points.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+
+      ctx.save();
+      ctx.lineTo(points[points.length - 1].x, midY);
+      ctx.lineTo(points[0].x, midY);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, isDownlink ? padTop : midY, 0, isDownlink ? midY : padTop + plotHeight);
+      grad.addColorStop(isDownlink ? 0 : 1, `rgba(${tr}, ${tg}, ${tb}, 0.22)`);
+      grad.addColorStop(isDownlink ? 1 : 0, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.95)`;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+  };
+
+  drawHalfCurve(downHistory, true, charts.speedDown.currentVal);
+  drawHalfCurve(upHistory, false, charts.speedUp.currentVal);
+
+  ctx.restore();
+}
+
+function renderAdminCombinedSpeedChart(now) {
+  const chart = charts.adminNetCombined;
+  if (!chart) return;
+  if (!chart.el) chart.el = document.getElementById("adminNetCombinedChart");
+  if (!chart.el || chart.el.clientHeight <= 0) return;
+
+  const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
+  if (width <= 0 || height <= 0) return;
+
+  const hEnpRx = chart.historyEnpRx || [];
+  const hWgRx = chart.historyWgRx || [];
+  const hEnpTx = chart.historyEnpTx || [];
+  const hWgTx = chart.historyWgTx || [];
+
+  const oldestAllowed = now - chart.timeWindow - 4000;
+  while (hEnpRx.length > 0 && hEnpRx[0].time < oldestAllowed) hEnpRx.shift();
+  while (hWgRx.length > 0 && hWgRx[0].time < oldestAllowed) hWgRx.shift();
+  while (hEnpTx.length > 0 && hEnpTx[0].time < oldestAllowed) hEnpTx.shift();
+  while (hWgTx.length > 0 && hWgTx[0].time < oldestAllowed) hWgTx.shift();
+
+  let peak = 10;
+  for (let i = 0; i < hEnpRx.length; i++) if (hEnpRx[i].val > peak) peak = hEnpRx[i].val;
+  for (let i = 0; i < hWgRx.length; i++) if (hWgRx[i].val > peak) peak = hWgRx[i].val;
+  for (let i = 0; i < hEnpTx.length; i++) if (hEnpTx[i].val > peak) peak = hEnpTx[i].val;
+  for (let i = 0; i < hWgTx.length; i++) if (hWgTx[i].val > peak) peak = hWgTx[i].val;
+
+  chart.targetMax = Math.max(10, Math.ceil(peak * 1.25));
+  chart.max += (chart.targetMax - chart.max) * 0.05;
+  const safeMax = Math.max(1, chart.max || 1);
+
+  chart.currEnpRx += ((hEnpRx.length > 0 ? hEnpRx[hEnpRx.length - 1].val : 0) - chart.currEnpRx) * 0.15;
+  chart.currWgRx += ((hWgRx.length > 0 ? hWgRx[hWgRx.length - 1].val : 0) - chart.currWgRx) * 0.15;
+  chart.currEnpTx += ((hEnpTx.length > 0 ? hEnpTx[hEnpTx.length - 1].val : 0) - chart.currEnpTx) * 0.15;
+  chart.currWgTx += ((hWgTx.length > 0 ? hWgTx[hWgTx.length - 1].val : 0) - chart.currWgTx) * 0.15;
+
+  const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
+  const plotWidth = Math.max(10, width - padLeft - padRight);
+  const plotHeight = Math.max(10, height - padTop - padBottom);
+  const midY = Math.round(padTop + plotHeight / 2);
+
+  const style = getComputedStyle(document.documentElement);
+  const themeColor = style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+  const [tr, tg, tb] = parseRgbComponents(themeColor);
+
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft + plotWidth, padTop);
+  ctx.moveTo(padLeft, midY); ctx.lineTo(padLeft + plotWidth, midY);
+  ctx.moveTo(padLeft, padTop + plotHeight); ctx.lineTo(padLeft + plotWidth, padTop + plotHeight);
+
+  for (let i = 0; i <= 4; i++) {
+    const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+    ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
+  }
+  ctx.stroke();
+
+  const formatUnit = (v) => v >= 1024 ? `${(v / 1024).toFixed(1)}M` : `${Math.round(v)}K`;
+  ctx.fillStyle = themeColor;
+  ctx.font = "8px 'Courier New', monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  ctx.fillText(`+${formatUnit(safeMax)}`, padLeft - 4, padTop + 2);
+  ctx.fillText("0", padLeft - 4, midY);
+  ctx.fillText(`-${formatUnit(safeMax)}`, padLeft - 4, padTop + plotHeight - 2);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
+  ctx.textAlign = "right";
+  ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
+  ctx.clip();
+
+  const drawSeries = (rawPoints, isDownlink, isDashed, currentVal) => {
+    if (rawPoints.length === 0) return;
+    const halfH = midY - padTop;
+    const getCoords = (timestamp, value) => {
+      const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
+      const x = padLeft + progress * plotWidth;
+      const norm = Math.min(Math.max(value, 0), safeMax) / safeMax;
+      const y = isDownlink ? midY - (norm * halfH) : midY + (norm * halfH);
+      return { x, y };
+    };
+
+    let points = rawPoints.map(p => getCoords(p.time, p.val));
+    if (points[0].x > padLeft) {
+      points.unshift({ x: padLeft, y: points[0].y });
+    } else {
+      let crossIdx = -1;
+      for (let i = 0; i < points.length - 1; i++) {
+        if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
+          crossIdx = i; break;
+        }
+      }
+      if (crossIdx !== -1) {
+        const p0 = points[crossIdx], p1 = points[crossIdx + 1];
+        const dx = p1.x - p0.x;
+        const ratio = dx > 0 ? (padLeft - p0.x) / dx : 0;
+        points = points.slice(crossIdx + 1);
+        points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
+      }
+    }
+    points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
+
+    if (points.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, ${isDashed ? 0.75 : 0.95})`;
+      ctx.lineWidth = isDashed ? 1.2 : 1.6;
+      ctx.setLineDash(isDashed ? [4, 3] : []);
+      ctx.stroke();
+    }
+  };
+
+  drawSeries(hEnpRx, true, true, chart.currEnpRx);
+  drawSeries(hWgRx, true, false, chart.currWgRx);
+
+  drawSeries(hEnpTx, false, true, chart.currEnpTx);
+  drawSeries(hWgTx, false, false, chart.currWgTx);
+
+  ctx.restore();
 }
 
 // FPS
@@ -449,10 +765,17 @@ function checkFPS(now = performance.now()) {
    lastSampleTime = now;
  }
 
- renderChart("fps", now);
- renderChart("memory", now);
- renderChart("speedUp", now);
- renderChart("speedDown", now);
+ const showAdminGraphs = typeof admin !== "undefined" && admin && typeof isAdminGraphMode !== "undefined" && isAdminGraphMode;
+
+ if (showAdminGraphs) {
+   renderChart("cpu", now);
+   renderChart("hostMem", now);
+   renderAdminCombinedSpeedChart(now);
+ } else {
+   renderChart("fps", now);
+   renderChart("memory", now);
+   renderCombinedSpeedChart(now);
+ }
 
  fpsRafId = requestAnimationFrame(checkFPS);
 }
