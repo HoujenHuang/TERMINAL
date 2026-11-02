@@ -54,23 +54,25 @@
         </div>
       </div>
 
-      <!-- FPS & Admin CPU split -->
       <div class="split">
-        <div class="label"><b>FPS:</b> <span id="fpsText">Calculating...</span></div>
-        <canvas id="fpsChart" class="monitor-chart"></canvas>
-        <div class="admin-feature">
-          <div class="label" style="margin-top: 4px;"><b>HOST CPU:</b> <span id="cpuText">0%</span></div>
+        <div class="client-graph">
+          <div class="label"><b>FPS:</b> <span id="fpsText">Calculating...</span></div>
+          <canvas id="fpsChart" class="monitor-chart"></canvas>
+        </div>
+        <div class="admin-graph">
+          <div class="label"><b>HOST CPU:</b> <span id="cpuText">0%</span></div>
           <canvas id="cpuChart" class="monitor-chart"></canvas>
         </div>
       </div>
 
-      <!-- Memory & Admin Host Memory split -->
       <div class="split">
-        <div class="label"><b>MEMORY:</b> USING <span id="memText">Calculating...</span> OUT OF <span id="memMax">...</span></div>
-        <b>HEAP:</b> <span id="memHeap">...</span> | <b>CACHE:</b> <span id="memStorage">...</span><br>
-        <canvas id="memChart" class="monitor-chart"></canvas><br>
-        <div class="admin-feature">
-          <div class="label" style="margin-top: 4px;"><b>HOST MEMORY:</b> <span id="hostMemText">0 GB / 0 GB (0%)</span></div>
+        <div class="client-graph">
+          <div class="label"><b>MEMORY:</b> USING <span id="memText">Calculating...</span> OUT OF <span id="memMax">...</span></div>
+          <b>HEAP:</b> <span id="memHeap">...</span> | <b>CACHE:</b> <span id="memStorage">...</span><br>
+          <canvas id="memChart" class="monitor-chart"></canvas><br>
+        </div>
+        <div class="admin-graph">
+          <div class="label"><b>HOST MEMORY:</b> <span id="hostMemText">0 GB / 0 GB (0%)</span></div>
           <canvas id="hostMemChart" class="monitor-chart"></canvas><br>
         </div>
         <div><b>TOP PROCESSES</b><span style="float:right;">PID | NAME | MEM</span></div>
@@ -85,6 +87,7 @@
 
         <div class="mini-info">
           <button onclick="toggleBatterySaver()">BATTERY SAVER</button>
+          <button id="adminGraphToggleBtn" class="invisible" onclick="toggleAdminGraphMode()" style="margin-top: 4px;">GRAPH: CLIENT</button>
         </div>
       </div>
     </div>
@@ -170,12 +173,14 @@
             <div id="results" class="video-grid"></div>
           </div>
 
-          <!-- Themes / Settings -->
+          <!-- Themes -->
           <div id="themeSetting" class="program invisible">
             =====<br>
             <button id="crtToggle" onclick="toggleCrt()">CRT Effects</button><br><br>
+
             <b>Privacy & Security</b><br><br>
             <button id="ipCensorToggle" onclick="toggleIpCensor()">Censor IPs: OFF</button><br><br>
+
             <b>Preset Color Schemes</b><br><br>
             <button id="bgGreen">P1 Green Phosphor</button>
             <button id="bgAmber">P3 Amber Phosphor</button>
@@ -211,7 +216,7 @@
             </div>
           </div>
 
-          <!-- Admin Login -->
+          <!-- Admin -->
           <div id="login" class="program invisible">
             <section class="flexbox">
               <div class="normal">
@@ -242,6 +247,10 @@
             <b id="adminAlert" class="invisible">Wrong username/password</b>
           </div>
 
+          <div id="admin" class="iframe-container program invisible">
+            <iframe id="adminFrame" style="height: 100%; border: none;"></iframe>
+          </div>
+
           <!-- Command input -->
           <div id="commandInput" class="invisible">
             <section class="flexbox">
@@ -252,10 +261,6 @@
                 <input id="stdin" type="text" autocomplete="off">
               </div>
             </section>
-          </div>
-
-          <div id="admin" class="iframe-container program invisible">
-            <iframe id="adminFrame" style="height: 100%; border: none;"></iframe>
           </div>
         </div>
 
@@ -389,22 +394,19 @@
         <div id="chartdiv" style="width: 100%; height: calc(100% - 4vw - 10px);"></div>
       </div>
 
-      <!-- Network Speed -->
       <div class="split">
         <b>NETWORK SPEED:</b> <span style="float: right">UP/DOWN, MB/S</span><br>
         <span>STATUS:</span><span id="speedText" style="float: right">Estimating...</span>
 
-        <canvas id="speedCombinedChart" class="monitor-chart"></canvas>
-        <canvas id="speedUpChart" style="display:none;"></canvas>
-        <canvas id="speedDownChart" style="display:none;"></canvas>
+        <div class="client-graph">
+          <canvas id="speedCombinedChart" class="monitor-chart"></canvas>
+          <canvas id="speedUpChart" style="display:none;"></canvas>
+          <canvas id="speedDownChart" style="display:none;"></canvas>
+        </div>
 
-        <div class="admin-feature">
-          <div style="border-top: 1px dashed var(--theme); margin: 4px 0 2px 0;"></div>
-          <div class="label"><b>SERVER RX</b> (enp0s31f6: -- | wg0: &mdash;) <span id="adminRxText" style="float:right;">0 KB/s</span></div>
-          <canvas id="adminNetRxChart" class="monitor-chart"></canvas>
-
-          <div class="label" style="margin-top: 2px;"><b>SERVER TX</b> (enp0s31f6: -- | wg0: &mdash;) <span id="adminTxText" style="float:right;">0 KB/s</span></div>
-          <canvas id="adminNetTxChart" class="monitor-chart"></canvas>
+        <div class="admin-graph">
+          <div class="label"><b>SERVER NET</b> (enp: -- | wg: &mdash;) <span id="adminNetText" style="float:right;">RX: 0 | TX: 0</span></div>
+          <canvas id="adminNetCombinedChart" class="monitor-chart"></canvas>
         </div>
 
         <button id="speedTestBtn" onclick="triggerSpeedTest()">TEST (30s)</button>
