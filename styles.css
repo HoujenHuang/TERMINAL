@@ -465,16 +465,16 @@ canvas {
  display: block;
 }
 
-body.is-admin canvas.monitor-chart {
-  height: 42px !important;
+#speedCombinedChart, #adminNetCombinedChart {
+  height: 170px !important;
 }
 
-.admin-feature {
-  display: none;
+.admin-graph-mode .client-graph {
+  display: none !important;
 }
 
-body.is-admin .admin-feature {
-  display: block;
+body:not(.admin-graph-mode) .admin-graph {
+  display: none !important;
 }
 
 /* Proxy */
