@@ -465,6 +465,18 @@ canvas {
  display: block;
 }
 
+body.is-admin canvas.monitor-chart {
+  height: 42px !important;
+}
+
+.admin-feature {
+  display: none;
+}
+
+body.is-admin .admin-feature {
+  display: block;
+}
+
 /* Proxy */
 #proxy {
  display: none;
