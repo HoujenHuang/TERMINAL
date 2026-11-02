@@ -95,7 +95,7 @@ function openSide() {
   isActive = true;
 }
 
-// Themes & IP Censorship Setting
+// Themes
 const rInput = document.getElementById("r");
 const gInput = document.getElementById("g");
 const bInput = document.getElementById("b");
@@ -267,187 +267,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Admin, 1-Second Polling & Canvas Graph Renderers
+// Admin
 var admin = false;
 let adminPollInterval = null;
 let adminToken = null;
+let isAdminGraphMode = false;
 
-// Graph history buffers (last 35 data points)
-const HISTORY_LEN = 35;
-const cpuHistory = new Array(HISTORY_LEN).fill(0);
-const hostMemHistory = new Array(HISTORY_LEN).fill(0);
-const rxEnpHistory = new Array(HISTORY_LEN).fill(0);
-const rxWgHistory = new Array(HISTORY_LEN).fill(0);
-const txEnpHistory = new Array(HISTORY_LEN).fill(0);
-const txWgHistory = new Array(HISTORY_LEN).fill(0);
+function toggleAdminGraphMode() {
+  if (!admin) return;
+  isAdminGraphMode = !isAdminGraphMode;
+  document.body.classList.toggle("admin-graph-mode", isAdminGraphMode);
 
-// Combined Client Net speed history
-const clientDownHistory = new Array(HISTORY_LEN).fill(0);
-const clientUpHistory = new Array(HISTORY_LEN).fill(0);
+  const btn = document.getElementById("adminGraphToggleBtn");
+  if (btn) btn.textContent = `GRAPH: ${isAdminGraphMode ? "SERVER" : "CLIENT"}`;
 
-function getActiveThemeColor() {
-  return getComputedStyle(document.documentElement).getPropertyValue('--theme').trim() || 'rgb(51, 255, 51)';
-}
-
-function drawLineChart(canvasId, dataArr, maxVal = 100, isDashed = false) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-  }
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  const themeCol = getActiveThemeColor();
-  ctx.strokeStyle = themeCol;
-  ctx.lineWidth = 1.5;
-  ctx.shadowColor = themeCol;
-  ctx.shadowBlur = 4;
-  if (isDashed) ctx.setLineDash([4, 3]);
-  else ctx.setLineDash([]);
-
-  const step = w / (dataArr.length - 1);
-  ctx.beginPath();
-  dataArr.forEach((val, i) => {
-    const norm = Math.max(0, Math.min(1, val / maxVal));
-    const x = i * step;
-    const y = h - (norm * (h - 4)) - 2;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  const targetCharts = isAdminGraphMode ? ["fps", "memory", "speedCombined"] : ["cpu", "hostMem", "adminNetCombined"];
+  targetCharts.forEach(key => {
+    const chart = (typeof charts !== "undefined") && charts[key];
+    if (chart && chart.el) {
+      const ctx = chart.el.getContext("2d");
+      ctx.clearRect(0, 0, chart.el.width, chart.el.height);
+    }
   });
-  ctx.stroke();
 
-  // Subtle gradient under solid curves
-  if (!isDashed) {
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(51, 255, 51, 0.08)";
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawDualInterfaceChart(canvasId, enpArr, wgArr) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-  }
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  const themeCol = getActiveThemeColor();
-  const maxVal = Math.max(10, ...enpArr, ...wgArr);
-  const step = w / (HISTORY_LEN - 1);
-
-  // 1. enp0s31f6 = dashed line (former)
-  ctx.strokeStyle = themeCol;
-  ctx.lineWidth = 1.2;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath();
-  enpArr.forEach((val, i) => {
-    const norm = Math.max(0, Math.min(1, val / maxVal));
-    const x = i * step;
-    const y = h - (norm * (h - 4)) - 2;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // 2. wg0 = solid line (latter)
-  ctx.setLineDash([]);
-  ctx.lineWidth = 1.6;
-  ctx.shadowColor = themeCol;
-  ctx.shadowBlur = 4;
-  ctx.beginPath();
-  wgArr.forEach((val, i) => {
-    const norm = Math.max(0, Math.min(1, val / maxVal));
-    const x = i * step;
-    const y = h - (norm * (h - 4)) - 2;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawCombinedSpeedChart(downArr, upArr) {
-  const canvas = document.getElementById('speedCombinedChart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-  }
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-
-  const themeCol = getActiveThemeColor();
-  const midY = h / 2;
-
-  // Zero-axis separator
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([2, 4]);
-  ctx.beginPath();
-  ctx.moveTo(0, midY);
-  ctx.lineTo(w, midY);
-  ctx.stroke();
-
-  const maxVal = Math.max(1, ...downArr, ...upArr);
-  const step = w / (HISTORY_LEN - 1);
-
-  // Positive half: Download (going upward from center)
-  ctx.setLineDash([]);
-  ctx.strokeStyle = themeCol;
-  ctx.shadowColor = themeCol;
-  ctx.shadowBlur = 3;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  downArr.forEach((val, i) => {
-    const norm = Math.max(0, Math.min(1, val / maxVal));
-    const x = i * step;
-    const y = midY - (norm * (midY - 2));
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Negative half: Upload (going downward from center)
-  ctx.beginPath();
-  upArr.forEach((val, i) => {
-    const norm = Math.max(0, Math.min(1, val / maxVal));
-    const x = i * step;
-    const y = midY + (norm * (midY - 2));
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  ctx.restore();
+  if (typeof resumeFPS === "function") resumeFPS();
 }
 
 async function renderAdminDashboard() {
-  if (!adminToken) return;
+  if (!adminToken || (typeof shouldRun === "function" && !shouldRun())) return;
 
   try {
     const res = await fetch(`${API_GATEWAY}/api/admin/costs?token=${encodeURIComponent(adminToken)}`, {
@@ -456,7 +303,8 @@ async function renderAdminDashboard() {
 
     if (res.status === 401) {
       if (adminPollInterval) clearInterval(adminPollInterval);
-      document.body.classList.remove('is-admin');
+      document.body.classList.remove('admin-graph-mode');
+      document.getElementById("adminGraphToggleBtn")?.classList.add("invisible");
       admin = false;
       adminToken = null;
       return;
@@ -465,65 +313,32 @@ async function renderAdminDashboard() {
     if (!res.ok) return;
     const data = await res.json();
 
-    // 1. Host CPU graph
-    if (data.system && typeof data.system.cpuVal !== "undefined") {
-      cpuHistory.shift();
-      cpuHistory.push(data.system.cpuVal);
-      drawLineChart("cpuChart", cpuHistory, 100);
-      const cpuTxt = document.getElementById("cpuText");
-      if (cpuTxt) cpuTxt.textContent = data.system.cpu;
+    if (typeof updateAdminGraphs === "function") {
+      updateAdminGraphs(data);
     }
 
-    // 2. Host Memory graph
-    if (data.system && typeof data.system.memPercent !== "undefined") {
-      hostMemHistory.shift();
-      hostMemHistory.push(data.system.memPercent);
-      drawLineChart("hostMemChart", hostMemHistory, 100);
-      const memTxt = document.getElementById("hostMemText");
-      if (memTxt) memTxt.textContent = data.system.memory;
-    }
+    const cpuTxt = document.getElementById("cpuText");
+    if (cpuTxt && data.system) cpuTxt.textContent = data.system.cpu;
 
-    // 3. Server RX/TX Dual Graphs (enp0s31f6 dashed, wg0 solid)
+    const memTxt = document.getElementById("hostMemText");
+    if (memTxt && data.system) memTxt.textContent = data.system.memory;
+
     if (data.system && data.system.interfaces) {
-      const enp = data.system.interfaces.enp0s31f6 || { rxRate: 0, txRate: 0 };
-      const wg = data.system.interfaces.wg0 || { rxRate: 0, txRate: 0 };
-
-      rxEnpHistory.shift(); rxEnpHistory.push(enp.rxRate);
-      rxWgHistory.shift(); rxWgHistory.push(wg.rxRate);
-      drawDualInterfaceChart("adminNetRxChart", rxEnpHistory, rxWgHistory);
-
-      txEnpHistory.shift(); txEnpHistory.push(enp.txRate);
-      txWgHistory.shift(); txWgHistory.push(wg.txRate);
-      drawDualInterfaceChart("adminNetTxChart", txEnpHistory, txWgHistory);
-
-      const rxLabel = document.getElementById("adminRxText");
-      if (rxLabel) rxLabel.textContent = `enp: ${enp.rxRateFormatted || '0 KB/s'} | wg: ${wg.rxRateFormatted || '0 KB/s'}`;
-      const txLabel = document.getElementById("adminTxText");
-      if (txLabel) txLabel.textContent = `enp: ${enp.txRateFormatted || '0 KB/s'} | wg: ${wg.txRateFormatted || '0 KB/s'}`;
+      const enp = data.system.interfaces.enp0s31f6 || { rxRateFormatted: '0 KB/s', txRateFormatted: '0 KB/s' };
+      const wg = data.system.interfaces.wg0 || { rxRateFormatted: '0 KB/s', txRateFormatted: '0 KB/s' };
+      const netLabel = document.getElementById("adminNetText");
+      if (netLabel) {
+        netLabel.textContent = `RX: ${enp.rxRateFormatted} / ${wg.rxRateFormatted} | TX: ${enp.txRateFormatted} / ${wg.txRateFormatted}`;
+      }
     }
   } catch (err) {
     console.error("Dashboard poll failed:", err);
   }
 }
 
-// Intercept speed updates to feed combined bidirectional client chart
-setInterval(() => {
-  const speedTxt = document.getElementById("speedText")?.textContent || "";
-  const match = speedTxt.match(/([\d.]+)\s*\/\s*([\d.]+)/);
-  if (match) {
-    clientDownHistory.shift(); clientDownHistory.push(parseFloat(match[1]) || 0);
-    clientUpHistory.shift(); clientUpHistory.push(parseFloat(match[2]) || 0);
-  } else {
-    clientDownHistory.shift(); clientDownHistory.push(0);
-    clientUpHistory.shift(); clientUpHistory.push(0);
-  }
-  drawCombinedSpeedChart(clientDownHistory, clientUpHistory);
-}, 1000);
-
 function applyAdminLogin(username, token) {
   adminToken = token;
   admin = true;
-  document.body.classList.add("is-admin");
 
   const cleanUser = username.includes("@") ? username.split("@")[0] : username;
   document.querySelectorAll(".user").forEach(el => {
@@ -533,20 +348,14 @@ function applyAdminLogin(username, token) {
   const loginEl = document.getElementById("login");
   if (loginEl) loginEl.style.display = "none";
 
-  const adminEl = document.getElementById("admin");
-  if (adminEl) adminEl.style.display = "block";
-
-  const adminFrame = document.getElementById("adminFrame");
-  if (adminFrame && !adminFrame.src) {
-    adminFrame.src = "https://docs.google.com/document/d/1Bz3dKVIdB5TTtfKcIagypFutgDw-PpwQhGuxRZK4CgU/edit?tab=t.sul0nicbvnre";
-  }
+  const toggleBtn = document.getElementById("adminGraphToggleBtn");
+  if (toggleBtn) toggleBtn.classList.remove("invisible");
 
   const emailEl = document.getElementById("email");
   if (emailEl) emailEl.value = username;
 
   renderAdminDashboard();
   if (adminPollInterval) clearInterval(adminPollInterval);
-  // Requirement 1: 1-second synchronization
   adminPollInterval = setInterval(renderAdminDashboard, 1000);
 }
 
@@ -2067,14 +1876,6 @@ function handleCommand(cmd) {
       setProgramForActiveTab("login", "login");
       setTimeout(() => document.getElementById("email")?.focus(), 50);
       return;
-    case "admin":
-      if (admin === true) {
-        setProgramForActiveTab("admin", "admin");
-        return;
-      } else {
-        response = "Access denied.";
-      }
-      break;
     case "furries are cringe": response = "I agree"; break;
     case "clear": clearOutput(); return;
     default: response = `ERROR: Command not found: ${cmd}`;
