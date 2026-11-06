@@ -42,7 +42,7 @@ function shouldRun() {
  return isActive && isTabVisible;
 }
 
-// Time
+Time
 let isTimeInit = false;
 
 function displayTime() {
@@ -70,7 +70,7 @@ function displayTime() {
  }
 }
 
-// Date
+Date
 function displayDate() {
  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -88,7 +88,7 @@ function displayDate() {
  load(`[ OK ] Date initialized: ${day} ${month} ${year}`);
 }
 
-// Uptime
+Uptime
 let isUptimeInit = false;
 
 let totalSeconds = 0;
@@ -118,7 +118,7 @@ function updateTimer() {
  }
 }
 
-// Browser
+Browser
 function checkBrowser() {
  const browser = document.getElementById("browser");
  const userAgent = navigator.userAgent;
@@ -147,7 +147,7 @@ function checkBrowser() {
  }
 }
 
-// Charts
+Charts
 const charts = {
  fps: {
    el: document.getElementById("fpsChart"),
@@ -212,9 +212,7 @@ const charts = {
  },
  speedCombined: {
    el: document.getElementById("speedCombinedChart"),
-   timeWindow: 60000,
-   max: 5,
-   targetMax: 5
+   timeWindow: 60000
  },
  adminNetCombined: {
    el: document.getElementById("adminNetCombinedChart"),
@@ -227,8 +225,10 @@ const charts = {
    currEnpTx: 0,
    currWgTx: 0,
    timeWindow: 30000,
-   max: 10,
-   targetMax: 10
+   maxRx: 10,
+   targetMaxRx: 10,
+   maxTx: 10,
+   targetMaxTx: 10
  }
 };
 
@@ -453,6 +453,7 @@ function renderChart(key, now) {
  ctx.restore();
 }
 
+User Combined Bidirectional Network Graph (Independent Y-Scales, No Vertical Stroke Lines)
 function renderCombinedSpeedChart(now) {
   const chart = charts.speedCombined;
   if (!chart) return;
@@ -469,13 +470,17 @@ function renderCombinedSpeedChart(now) {
   while (downHistory.length > 0 && downHistory[0].time < oldestAllowed) downHistory.shift();
   while (upHistory.length > 0 && upHistory[0].time < oldestAllowed) upHistory.shift();
 
-  let peak = 5;
-  for (let i = 0; i < downHistory.length; i++) if (downHistory[i].val > peak) peak = downHistory[i].val;
-  for (let i = 0; i < upHistory.length; i++) if (upHistory[i].val > peak) peak = upHistory[i].val;
+  let peakDown = 5;
+  for (let i = 0; i < downHistory.length; i++) if (downHistory[i].val > peakDown) peakDown = downHistory[i].val;
+  charts.speedDown.targetMax = Math.max(5, Math.ceil(peakDown * 1.25));
+  charts.speedDown.max += (charts.speedDown.targetMax - charts.speedDown.max) * 0.05;
+  const safeMaxDown = Math.max(1, charts.speedDown.max || 1);
 
-  chart.targetMax = Math.max(5, Math.ceil(peak * 1.25));
-  chart.max += (chart.targetMax - chart.max) * 0.05;
-  const safeMax = Math.max(1, chart.max || 1);
+  let peakUp = 5;
+  for (let i = 0; i < upHistory.length; i++) if (upHistory[i].val > peakUp) peakUp = upHistory[i].val;
+  charts.speedUp.targetMax = Math.max(5, Math.ceil(peakUp * 1.25));
+  charts.speedUp.max += (charts.speedUp.targetMax - charts.speedUp.max) * 0.05;
+  const safeMaxUp = Math.max(1, charts.speedUp.max || 1);
 
   const lastDown = downHistory.length > 0 ? downHistory[downHistory.length - 1].val : charts.speedDown.targetVal;
   charts.speedDown.currentVal += (lastDown - charts.speedDown.currentVal) * 0.15;
@@ -512,9 +517,9 @@ function renderCombinedSpeedChart(now) {
   ctx.font = "8px 'Courier New', monospace";
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
-  ctx.fillText(`+${Math.round(safeMax)}`, padLeft - 4, padTop + 2);
+  ctx.fillText(`+${Math.round(safeMaxDown)}`, padLeft - 4, padTop + 2);
   ctx.fillText("0", padLeft - 4, midY);
-  ctx.fillText(`-${Math.round(safeMax)}`, padLeft - 4, padTop + plotHeight - 2);
+  ctx.fillText(`-${Math.round(safeMaxUp)}`, padLeft - 4, padTop + plotHeight - 2);
 
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -527,7 +532,7 @@ function renderCombinedSpeedChart(now) {
   ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
   ctx.clip();
 
-  const drawHalfCurve = (rawPoints, isDownlink, currentVal) => {
+  const drawHalfCurve = (rawPoints, isDownlink, currentVal, safeMax) => {
     if (rawPoints.length === 0) return;
     const halfH = midY - padTop;
     const getCoords = (timestamp, value) => {
@@ -560,16 +565,18 @@ function renderCombinedSpeedChart(now) {
     points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
 
     if (points.length >= 2) {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 0; i < points.length - 1; i++) {
-        const xc = (points[i].x + points[i + 1].x) / 2;
-        const yc = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
-      }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      const buildSmoothPath = () => {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const xc = (points[i].x + points[i + 1].x) / 2;
+          const yc = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      };
 
-      ctx.save();
+      buildSmoothPath();
       ctx.lineTo(points[points.length - 1].x, midY);
       ctx.lineTo(points[0].x, midY);
       ctx.closePath();
@@ -578,16 +585,17 @@ function renderCombinedSpeedChart(now) {
       grad.addColorStop(isDownlink ? 1 : 0, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
       ctx.fillStyle = grad;
       ctx.fill();
-      ctx.restore();
 
+      buildSmoothPath();
       ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.95)`;
       ctx.lineWidth = 1.6;
+      ctx.setLineDash([]);
       ctx.stroke();
     }
   };
 
-  drawHalfCurve(downHistory, true, charts.speedDown.currentVal);
-  drawHalfCurve(upHistory, false, charts.speedUp.currentVal);
+  drawHalfCurve(downHistory, true, charts.speedDown.currentVal, safeMaxDown);
+  drawHalfCurve(upHistory, false, charts.speedUp.currentVal, safeMaxUp);
 
   ctx.restore();
 }
@@ -612,15 +620,19 @@ function renderAdminCombinedSpeedChart(now) {
   while (hEnpTx.length > 0 && hEnpTx[0].time < oldestAllowed) hEnpTx.shift();
   while (hWgTx.length > 0 && hWgTx[0].time < oldestAllowed) hWgTx.shift();
 
-  let peak = 10;
-  for (let i = 0; i < hEnpRx.length; i++) if (hEnpRx[i].val > peak) peak = hEnpRx[i].val;
-  for (let i = 0; i < hWgRx.length; i++) if (hWgRx[i].val > peak) peak = hWgRx[i].val;
-  for (let i = 0; i < hEnpTx.length; i++) if (hEnpTx[i].val > peak) peak = hEnpTx[i].val;
-  for (let i = 0; i < hWgTx.length; i++) if (hWgTx[i].val > peak) peak = hWgTx[i].val;
+  let peakRx = 10;
+  for (let i = 0; i < hEnpRx.length; i++) if (hEnpRx[i].val > peakRx) peakRx = hEnpRx[i].val;
+  for (let i = 0; i < hWgRx.length; i++) if (hWgRx[i].val > peakRx) peakRx = hWgRx[i].val;
+  chart.targetMaxRx = Math.max(10, Math.ceil(peakRx * 1.25));
+  chart.maxRx = (chart.maxRx || 10) + (chart.targetMaxRx - (chart.maxRx || 10)) * 0.05;
+  const safeMaxRx = Math.max(1, chart.maxRx || 1);
 
-  chart.targetMax = Math.max(10, Math.ceil(peak * 1.25));
-  chart.max += (chart.targetMax - chart.max) * 0.05;
-  const safeMax = Math.max(1, chart.max || 1);
+  let peakTx = 10;
+  for (let i = 0; i < hEnpTx.length; i++) if (hEnpTx[i].val > peakTx) peakTx = hEnpTx[i].val;
+  for (let i = 0; i < hWgTx.length; i++) if (hWgTx[i].val > peakTx) peakTx = hWgTx[i].val;
+  chart.targetMaxTx = Math.max(10, Math.ceil(peakTx * 1.25));
+  chart.maxTx = (chart.maxTx || 10) + (chart.targetMaxTx - (chart.maxTx || 10)) * 0.05;
+  const safeMaxTx = Math.max(1, chart.maxTx || 1);
 
   chart.currEnpRx += ((hEnpRx.length > 0 ? hEnpRx[hEnpRx.length - 1].val : 0) - chart.currEnpRx) * 0.15;
   chart.currWgRx += ((hWgRx.length > 0 ? hWgRx[hWgRx.length - 1].val : 0) - chart.currWgRx) * 0.15;
@@ -657,9 +669,9 @@ function renderAdminCombinedSpeedChart(now) {
   ctx.font = "8px 'Courier New', monospace";
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
-  ctx.fillText(`+${formatUnit(safeMax)}`, padLeft - 4, padTop + 2);
+  ctx.fillText(`+${formatUnit(safeMaxRx)}`, padLeft - 4, padTop + 2);
   ctx.fillText("0", padLeft - 4, midY);
-  ctx.fillText(`-${formatUnit(safeMax)}`, padLeft - 4, padTop + plotHeight - 2);
+  ctx.fillText(`-${formatUnit(safeMaxTx)}`, padLeft - 4, padTop + plotHeight - 2);
 
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -672,7 +684,7 @@ function renderAdminCombinedSpeedChart(now) {
   ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
   ctx.clip();
 
-  const drawSeries = (rawPoints, isDownlink, isDashed, currentVal) => {
+  const drawSeries = (rawPoints, isDownlink, isDashed, currentVal, safeMax) => {
     if (rawPoints.length === 0) return;
     const halfH = midY - padTop;
     const getCoords = (timestamp, value) => {
@@ -704,14 +716,30 @@ function renderAdminCombinedSpeedChart(now) {
     points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
 
     if (points.length >= 2) {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 0; i < points.length - 1; i++) {
-        const xc = (points[i].x + points[i + 1].x) / 2;
-        const yc = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      const buildSmoothPath = () => {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const xc = (points[i].x + points[i + 1].x) / 2;
+          const yc = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      };
+
+      if (!isDashed) {
+        buildSmoothPath();
+        ctx.lineTo(points[points.length - 1].x, midY);
+        ctx.lineTo(points[0].x, midY);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, isDownlink ? padTop : midY, 0, isDownlink ? midY : padTop + plotHeight);
+        grad.addColorStop(isDownlink ? 0 : 1, `rgba(${tr}, ${tg}, ${tb}, 0.16)`);
+        grad.addColorStop(isDownlink ? 1 : 0, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
+        ctx.fillStyle = grad;
+        ctx.fill();
       }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+
+      buildSmoothPath();
       ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, ${isDashed ? 0.75 : 0.95})`;
       ctx.lineWidth = isDashed ? 1.2 : 1.6;
       ctx.setLineDash(isDashed ? [4, 3] : []);
@@ -719,11 +747,11 @@ function renderAdminCombinedSpeedChart(now) {
     }
   };
 
-  drawSeries(hEnpRx, true, true, chart.currEnpRx);
-  drawSeries(hWgRx, true, false, chart.currWgRx);
+  drawSeries(hEnpRx, true, true, chart.currEnpRx, safeMaxRx);
+  drawSeries(hWgRx, true, false, chart.currWgRx, safeMaxRx);
 
-  drawSeries(hEnpTx, false, true, chart.currEnpTx);
-  drawSeries(hWgTx, false, false, chart.currWgTx);
+  drawSeries(hEnpTx, false, true, chart.currEnpTx, safeMaxTx);
+  drawSeries(hWgTx, false, false, chart.currWgTx, safeMaxTx);
 
   ctx.restore();
 }
