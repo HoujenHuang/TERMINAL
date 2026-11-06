@@ -2071,18 +2071,95 @@ function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function decodeCodex(code) {
+  if (!code || typeof code !== "string") {
+    return { isSafe: false, classification: "Class III-α Haereticus Primus" };
+  }
+
+  const raw = code.trim();
+  if (raw.startsWith("Class ")) {
+    const isSafe = /\bClass\s+(I|II)\b/i.test(raw);
+    return { isSafe, classification: raw };
+  }
+
+  if (raw === "1" || raw.toLowerCase() === "1a" || raw.toLowerCase().startsWith("1")) {
+    return { isSafe: true, classification: "Class I - Orthodox" };
+  }
+
+  const match = raw.match(/^([234oOwW0])[-_]?([abgαβγ])?[-_]?([1-4])?$/i);
+  if (!match) {
+    return { isSafe: false, classification: "Class III-α Haereticus Primus" };
+  }
+
+  const gradusChar = match[1].toUpperCase();
+  const ordoChar = (match[2] || "a").toLowerCase();
+  const decretumDigit = match[3] || "1";
+
+  const ordoMap = { a: "α", b: "β", g: "γ", "α": "α", "β": "β", "γ": "γ" };
+  const ordoSym = ordoMap[ordoChar] || "α";
+
+  let gradusRoman = "III";
+  let decretumText = "Haeresis Proxima";
+  let isSafe = false;
+
+  if (gradusChar === "2") {
+    gradusRoman = "II";
+    isSafe = true;
+    const g2Map = {
+      "1": "Libertas per Scientiam",
+      "2": "Beati Mundo Corde",
+      "3": "Memento Mori"
+    };
+    decretumText = g2Map[decretumDigit] || "Memento Mori";
+  } else if (gradusChar === "3") {
+    gradusRoman = "III";
+    isSafe = false;
+    const g3Map = {
+      "1": "Haereticus Primus",
+      "2": "Haereticus Pestis",
+      "3": "Haereticus Templum",
+      "4": "Haeresis Proxima"
+    };
+    decretumText = g3Map[decretumDigit] || "Haereticus Primus";
+  } else if (gradusChar === "4") {
+    gradusRoman = "IV";
+    isSafe = false;
+    decretumText = "Haeresis Veritas";
+  } else if (["O", "W", "0"].includes(gradusChar)) {
+    gradusRoman = "Ω";
+    isSafe = false;
+    decretumText = "Haeresis Existentialis";
+  }
+
+  return {
+    isSafe,
+    classification: `Class ${gradusRoman}-${ordoSym} ${decretumText}`
+  };
+}
+
 function isPure(classification) {
   if (!classification || typeof classification !== "string") return false;
   return /\bClass\s+(I|II)\b/i.test(classification);
 }
 
 function edictOfObliteration(uiItems) {
+  const classIIChannels = new Set();
+  uiItems.forEach(item => {
+    const classification = item.assessment && item.assessment.classification;
+    if (classification && /\bClass\s+II\b/i.test(classification)) {
+      if (item.video && item.video.snippet && item.video.snippet.channelTitle) {
+        classIIChannels.add(item.video.snippet.channelTitle);
+      }
+    }
+  });
+
   const condemnedChannels = new Set();
   uiItems.forEach(item => {
     const classification = item.assessment && item.assessment.classification;
     if (!isPure(classification)) {
-      if (item.video && item.video.snippet && item.video.snippet.channelTitle) {
-        condemnedChannels.add(item.video.snippet.channelTitle);
+      const channelName = item.video && item.video.snippet && item.video.snippet.channelTitle;
+      if (channelName && !classIIChannels.has(channelName)) {
+        condemnedChannels.add(channelName);
       }
     }
   });
@@ -2092,79 +2169,194 @@ function edictOfObliteration(uiItems) {
   uiItems.forEach(item => {
     let title = item.video.snippet.title;
     let channel = item.video.snippet.channelTitle;
-    const isExemptVideo = isPure(item.assessment && item.assessment.classification);
 
-    if (!isExemptVideo && sortedCondemned.length > 0) {
+    if (sortedCondemned.length > 0) {
       sortedCondemned.forEach(badChannel => {
         const escapedName = escapeRegExp(badChannel);
-        const regex = new RegExp(`(^|[^a-zA-Z])(${escapedName})(?=[^a-zA-Z]|$)`, 'gi');
+        const regex = new RegExp(`(^|[^a-zA-Z0-9])(${escapedName})(?=[^a-zA-Z0-9]|$)`, 'gi');
         title = title.replace(regex, (m, b, matched) => b + `<span class="censor-text">${matched.replace(/./g, '█')}</span>`);
-        channel = channel.replace(regex, () => "<b>[ DATA EXPUNGED ]</b>");
       });
     }
+
+    if (condemnedChannels.has(item.video.snippet.channelTitle)) {
+      channel = "<b>[ DATA EXPUNGED ]</b>";
+      if (item.assessment) item.assessment.isObliterated = true;
+    }
+
     item.displayTitle = title;
     item.displayChannel = channel;
   });
+
   return uiItems;
 }
 
 async function purgeHeresy(videos, query) {
-  const chunkSize = 25;
-  const chunks = [];
-  for (let i = 0; i < videos.length; i += chunkSize) chunks.push(videos.slice(i, i + chunkSize));
-
+  const expectedIds = videos.map(v => (v.id.videoId || v.id));
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
-  const processChunk = async (chunk) => {
-    const expectedIds = chunk.map(v => (v.id.videoId || v.id));
-    let templateStr = "[\n";
-    for (let i = 0; i < chunk.length; i++) {
-      const vidId = chunk[i].id.videoId || chunk[i].id;
-      templateStr += `  { "id": "${vidId}", "isSafe": true/false, "classification": "class" }${i < chunk.length - 1 ? ',' : ''}\n`;
-    }
-    templateStr += "]";
+  let templateStr = "[\n";
+  for (let i = 0; i < videos.length; i++) {
+    const vidId = videos[i].id.videoId || videos[i].id;
+    templateStr += `  {"i":"${vidId}","c":"code"}${i < videos.length - 1 ? ',' : ''}\n`;
+  }
+  templateStr += "]";
 
-    let metadataString = "\n";
-    for (let i = 0; i < chunk.length; i++) {
-      const v = chunk[i];
-      const vidId = v.id.videoId || v.id;
-      const safeDesc = v.snippet.description ? v.snippet.description.replace(/[\n\r"]/g, ' ').replace(/\\/g, '/').substring(0, 100) : "";
-      metadataString += `[${i + 1}] ID:${vidId} | CH:${v.snippet.channelTitle} | T:${v.snippet.title} | D:${safeDesc}\n`;
-    }
+  let metadataString = "\n";
+  for (let i = 0; i < videos.length; i++) {
+    const v = videos[i];
+    const vidId = v.id.videoId || v.id;
+    const safeDesc = v.snippet.description 
+      ? v.snippet.description.replace(/[\n\r"]/g, ' ').replace(/\\/g, '/').substring(0, 220) 
+      : "";
+    metadataString += `[${i + 1}] ID:${vidId} | CH:${v.snippet.channelTitle} | T:${v.snippet.title} | D:${safeDesc}\n`;
+  }
 
-    const parts = [{
-      text: `PURPOSE: Enforce purity in videos by purging heresy.
-User searched for: "${query}".
-Review videos and return JSON matching:
-${templateStr}\n\nMetadata:\n${metadataString}`
-    }];
+  const parts = [{
+    text: `PURPOSE: Audit videos for heresy. Return ONLY the compressed JSON code for each video.
 
+SEARCH QUERY: "${query}"
+
+AUDIT CONTEXT:
+If query "${query}" targets an adult creator, NSFW artist, or 18+ animator:
+- Original animations, re-uploads, compilations, edits, sound-alikes are Heretic (3a1, 3a2, or 4a1).
+- Channels linking to Patreon, Fanbox, Subscribestar, Newgrounds adult pages, or uncensored cuts are Heretics.
+- Only third-party news or objective criticism is Tolerable Heresy (2a1, 2a2).
+
+CODEX COMPRESSION ENCODING:
+Syntax: [Gradus][Ordo][Decretum]
+
+GRADUS:
+  1: Orthodox (output exactly "1")
+  2: Tolerable Heresy (isSafe: true)
+  3: Heresy / Heretics (isSafe: false)
+  4: Haeresis Veritas (Explicit/pornographic; isSafe: false)
+  O: Haeresis Existentialis (Malware/Illegal; isSafe: false)
+
+ORDO:
+  a: α (Suggestive/Mind)
+  b: β (Malware/Machine)
+  g: γ (Security breach)
+
+DECRETUM (Digit):
+  For Gradus 2:
+    1: Libertas per Scientiam (Educational)
+    2: Beati Mundo Corde (Criticism)
+    3: Memento Mori (Edgy comedy/satire)
+  For Gradus 3:
+    1: Haereticus Primus (Adult animators/known creators)
+    2: Haereticus Pestis (Memes, compilations, reactions to heretics)
+    3: Haereticus Templum (Suggestive topic seeding heresy)
+    4: Haeresis Proxima (Low-quality, suggestive, brainrot)
+  For Gradus 4:
+    1: Haeresis Veritas
+  For Gradus O:
+    1: Haeresis Existentialis
+
+EXAMPLES:
+  - Clean video -> "1"
+  - NSFW animator's original work -> "3a1"
+  - Meme/reupload/compilation of NSFW animator -> "3a2"
+  - Suggestive meme -> "3a4"
+  - Documentary about animator -> "2a1"
+  - Explicit pornography -> "4a1"
+
+TEMPLATE:
+${templateStr}
+
+METADATA LIST:
+${metadataString}`
+  }];
+
+  let attempts = 0;
+  const maxAttempts = 2;
+
+  while (attempts < maxAttempts) {
+    attempts++;
     try {
       const res = await fetch(`${API_GATEWAY}/api/gemini`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts }] })
+        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({
+          contents: [{ parts }],
+          safetySettings: safetySettings,
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.1,
+            responseSchema: {
+              type: "ARRAY",
+              description: `List of exactly ${videos.length} compressed evaluations.`,
+              items: {
+                type: "OBJECT",
+                properties: {
+                  i: { type: "STRING" },
+                  c: { type: "STRING" }
+                },
+                required: ["i", "c"]
+              }
+            }
+          }
+        })
       });
+
+      if (res.status === 429) {
+        if (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1200));
+          continue;
+        }
+        throw new Error("Rate limit");
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       if (data.usageMetadata) {
         totalInputTokens += data.usageMetadata.promptTokenCount || 0;
         totalOutputTokens += data.usageMetadata.candidatesTokenCount || 0;
       }
+
+      if (data.candidates && data.candidates[0].finishReason === "SAFETY") {
+        return {
+          assessments: videos.map(v => ({ id: v.id.videoId || v.id, isSafe: false, classification: "Class IV-α Haeresis Veritas" })),
+          usage: { input: totalInputTokens, output: totalOutputTokens }
+        };
+      }
+
+      if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+        throw new Error("Invalid model payload");
+      }
+
       let responseText = data.candidates[0].content.parts[0].text;
       const firstBracket = responseText.indexOf('[');
       const lastBracket = responseText.lastIndexOf(']');
-      if (firstBracket !== -1 && lastBracket !== -1) responseText = responseText.substring(firstBracket, lastBracket + 1);
-      const parsed = JSON.parse(responseText);
-      parsed.forEach((item, index) => { item.id = expectedIds[index]; });
-      return parsed;
-    } catch (e) {
-      return chunk.map(v => ({ id: v.id.videoId || v.id, isSafe: true, classification: "Class I - Securus" }));
-    }
-  };
+      if (firstBracket !== -1 && lastBracket !== -1) {
+        responseText = responseText.substring(firstBracket, lastBracket + 1);
+      }
+      const compressedList = JSON.parse(responseText);
 
-  const results = await Promise.all(chunks.map(chunk => processChunk(chunk)));
-  return { assessments: results.flat(), usage: { input: totalInputTokens, output: totalOutputTokens } };
+      const decodedAssessments = expectedIds.map((expectedId, idx) => {
+        const item = compressedList.find(x => x.i === expectedId) || compressedList[idx] || {};
+        const decoded = decodeCodex(item.c || "3a1");
+        return {
+          id: expectedId,
+          isSafe: decoded.isSafe,
+          classification: decoded.classification
+        };
+      });
+
+      return { assessments: decodedAssessments, usage: { input: totalInputTokens, output: totalOutputTokens } };
+    } catch (e) {
+      if (attempts >= maxAttempts) {
+        console.warn("Tsarevich batch failed, executing safe purge fallback:", e.message || e);
+        return {
+          assessments: videos.map(v => ({ id: v.id.videoId || v.id, isSafe: false, classification: "Class III-α Haereticus Primus" })),
+          usage: { input: totalInputTokens, output: totalOutputTokens }
+        };
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
 }
 
 function getGradusCssClass(classificationString) {
@@ -2179,7 +2371,12 @@ function getGradusCssClass(classificationString) {
 const searchBtn = document.getElementById("youtubeSearch");
 searchBtn.addEventListener("click", searchVideos);
 const queryInput = document.getElementById("query");
-queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") searchVideos(); });
+queryInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !searchBtn.disabled) {
+    e.preventDefault();
+    searchVideos();
+  }
+});
 
 async function searchVideos() {
   const query = document.getElementById('query').value.trim();
@@ -2197,7 +2394,9 @@ async function searchVideos() {
 
   const startTime = performance.now();
   try {
-    const ytRes = await fetch(`${API_GATEWAY}/api/youtube?q=${encodeURIComponent(query)}`);
+    const ytRes = await fetch(`${API_GATEWAY}/api/youtube?q=${encodeURIComponent(query)}`, {
+      signal: AbortSignal.timeout(8000)
+    });
     const ytData = await ytRes.json();
     if (!ytData.items || ytData.items.length === 0) throw new Error("No records found");
 
@@ -2209,7 +2408,7 @@ async function searchVideos() {
 
     let finalUIItems = ytData.items.map(v => ({
       video: v,
-      assessment: assessmentMap[v.id.videoId || v.id] || { isSafe: true, classification: "Class I - Securus" }
+      assessment: assessmentMap[v.id.videoId || v.id] || { isSafe: false, classification: "Class III-α Haereticus Primus" }
     }));
     finalUIItems = edictOfObliteration(finalUIItems);
 
@@ -2217,7 +2416,7 @@ async function searchVideos() {
     const safeCount = finalUIItems.filter(item => item.assessment.isSafe).length;
     sText.innerText = `${safeCount} of ${ytData.items.length} deemed pure`;
     metricsDiv.style.display = "block";
-    metricsDiv.innerHTML = `Latency: <strong>${latencySec}s</strong>`;
+    metricsDiv.innerHTML = `Compute Load: ${responseData.usage.input} In | ${responseData.usage.output} Out <br/>Latency: <strong>${latencySec}s</strong>`;
 
     finalUIItems.forEach(item => {
       const vidId = item.video.id.videoId || item.video.id;
