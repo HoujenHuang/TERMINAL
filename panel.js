@@ -42,7 +42,7 @@ function shouldRun() {
  return isActive && isTabVisible;
 }
 
-Time
+// Time
 let isTimeInit = false;
 
 function displayTime() {
@@ -70,7 +70,7 @@ function displayTime() {
  }
 }
 
-Date
+// Date
 function displayDate() {
  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -88,7 +88,7 @@ function displayDate() {
  load(`[ OK ] Date initialized: ${day} ${month} ${year}`);
 }
 
-Uptime
+// Uptime
 let isUptimeInit = false;
 
 let totalSeconds = 0;
@@ -118,7 +118,7 @@ function updateTimer() {
  }
 }
 
-Browser
+// Browser
 function checkBrowser() {
  const browser = document.getElementById("browser");
  const userAgent = navigator.userAgent;
@@ -147,7 +147,7 @@ function checkBrowser() {
  }
 }
 
-Charts
+// Charts
 const charts = {
  fps: {
    el: document.getElementById("fpsChart"),
@@ -328,12 +328,20 @@ function renderChart(key, now) {
    chart.history.shift();
  }
 
- const minCeiling = (key === "cpu" || key === "hostMem") ? 100 : (key === "fps" ? 60 : (key === "memory" ? 20 : 5));
- let peak = minCeiling;
+ let peak = (key === "fps") ? 60 : 5;
  for (let i = 0; i < chart.history.length; i++) {
    if (chart.history[i].val > peak) peak = chart.history[i].val;
  }
- chart.targetMax = Math.max(minCeiling, Math.ceil(peak * 1.25));
+
+ if (key === "cpu") {
+   chart.targetMax = Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
+ } else if (key === "hostMem") {
+   chart.targetMax = Math.min(100, Math.max(10, Math.ceil(peak * 1.2)));
+ } else if (key === "fps") {
+   chart.targetMax = Math.max(60, Math.ceil(peak * 1.1));
+ } else {
+   chart.targetMax = Math.max(5, Math.ceil(peak * 1.25));
+ }
 
  chart.max += (chart.targetMax - chart.max) * 0.05;
  const safeMax = Math.max(1, chart.max || 1);
@@ -369,11 +377,12 @@ function renderChart(key, now) {
  ctx.textBaseline = "middle";
  ctx.textAlign = "right";
 
+ const topLabel = (key === "cpu" || key === "hostMem") ? `${Math.round(safeMax)}%` : Math.round(safeMax).toString();
  if (chart.inverted) {
    ctx.fillText("0", padLeft - 4, padTop + 2);
-   ctx.fillText(Math.round(safeMax).toString(), padLeft - 4, padTop + plotHeight);
+   ctx.fillText(topLabel, padLeft - 4, padTop + plotHeight);
  } else {
-   ctx.fillText(Math.round(safeMax).toString(), padLeft - 4, padTop + 2);
+   ctx.fillText(topLabel, padLeft - 4, padTop + 2);
    ctx.fillText("0", padLeft - 4, padTop + plotHeight);
  }
 
@@ -445,15 +454,13 @@ function renderChart(key, now) {
      buildSmoothPath();
      ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.95)`;
      ctx.lineWidth = 1.6;
-     ctx.lineJoin = "round";
-     ctx.lineCap = "round";
+     ctx.setLineDash([]);
      ctx.stroke();
    }
  }
  ctx.restore();
 }
 
-User Combined Bidirectional Network Graph (Independent Y-Scales, No Vertical Stroke Lines)
 function renderCombinedSpeedChart(now) {
   const chart = charts.speedCombined;
   if (!chart) return;
@@ -470,17 +477,17 @@ function renderCombinedSpeedChart(now) {
   while (downHistory.length > 0 && downHistory[0].time < oldestAllowed) downHistory.shift();
   while (upHistory.length > 0 && upHistory[0].time < oldestAllowed) upHistory.shift();
 
-  let peakDown = 5;
+  let peakDown = 1;
   for (let i = 0; i < downHistory.length; i++) if (downHistory[i].val > peakDown) peakDown = downHistory[i].val;
-  charts.speedDown.targetMax = Math.max(5, Math.ceil(peakDown * 1.25));
+  charts.speedDown.targetMax = Math.max(1, Math.ceil(peakDown * 1.25));
   charts.speedDown.max += (charts.speedDown.targetMax - charts.speedDown.max) * 0.05;
-  const safeMaxDown = Math.max(1, charts.speedDown.max || 1);
+  const safeMaxDown = Math.max(0.1, charts.speedDown.max || 1);
 
-  let peakUp = 5;
+  let peakUp = 1;
   for (let i = 0; i < upHistory.length; i++) if (upHistory[i].val > peakUp) peakUp = upHistory[i].val;
-  charts.speedUp.targetMax = Math.max(5, Math.ceil(peakUp * 1.25));
+  charts.speedUp.targetMax = Math.max(1, Math.ceil(peakUp * 1.25));
   charts.speedUp.max += (charts.speedUp.targetMax - charts.speedUp.max) * 0.05;
-  const safeMaxUp = Math.max(1, charts.speedUp.max || 1);
+  const safeMaxUp = Math.max(0.1, charts.speedUp.max || 1);
 
   const lastDown = downHistory.length > 0 ? downHistory[downHistory.length - 1].val : charts.speedDown.targetVal;
   charts.speedDown.currentVal += (lastDown - charts.speedDown.currentVal) * 0.15;
@@ -513,13 +520,14 @@ function renderCombinedSpeedChart(now) {
   }
   ctx.stroke();
 
+  const formatUnit = (v) => (v >= 10) ? Math.round(v).toString() : v.toFixed(1);
   ctx.fillStyle = themeColor;
   ctx.font = "8px 'Courier New', monospace";
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
-  ctx.fillText(`+${Math.round(safeMaxDown)}`, padLeft - 4, padTop + 2);
+  ctx.fillText(`+${formatUnit(safeMaxDown)}`, padLeft - 4, padTop + 2);
   ctx.fillText("0", padLeft - 4, midY);
-  ctx.fillText(`-${Math.round(safeMaxUp)}`, padLeft - 4, padTop + plotHeight - 2);
+  ctx.fillText(`-${formatUnit(safeMaxUp)}`, padLeft - 4, padTop + plotHeight - 2);
 
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -561,7 +569,6 @@ function renderCombinedSpeedChart(now) {
         points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
       }
     }
-
     points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
 
     if (points.length >= 2) {
@@ -620,19 +627,19 @@ function renderAdminCombinedSpeedChart(now) {
   while (hEnpTx.length > 0 && hEnpTx[0].time < oldestAllowed) hEnpTx.shift();
   while (hWgTx.length > 0 && hWgTx[0].time < oldestAllowed) hWgTx.shift();
 
-  let peakRx = 10;
+  let peakRx = 1;
   for (let i = 0; i < hEnpRx.length; i++) if (hEnpRx[i].val > peakRx) peakRx = hEnpRx[i].val;
   for (let i = 0; i < hWgRx.length; i++) if (hWgRx[i].val > peakRx) peakRx = hWgRx[i].val;
-  chart.targetMaxRx = Math.max(10, Math.ceil(peakRx * 1.25));
-  chart.maxRx = (chart.maxRx || 10) + (chart.targetMaxRx - (chart.maxRx || 10)) * 0.05;
-  const safeMaxRx = Math.max(1, chart.maxRx || 1);
+  chart.targetMaxRx = Math.max(1, Math.ceil(peakRx * 1.25));
+  chart.maxRx = (chart.maxRx || 1) + (chart.targetMaxRx - (chart.maxRx || 1)) * 0.05;
+  const safeMaxRx = Math.max(0.1, chart.maxRx || 1);
 
-  let peakTx = 10;
+  let peakTx = 1;
   for (let i = 0; i < hEnpTx.length; i++) if (hEnpTx[i].val > peakTx) peakTx = hEnpTx[i].val;
   for (let i = 0; i < hWgTx.length; i++) if (hWgTx[i].val > peakTx) peakTx = hWgTx[i].val;
-  chart.targetMaxTx = Math.max(10, Math.ceil(peakTx * 1.25));
-  chart.maxTx = (chart.maxTx || 10) + (chart.targetMaxTx - (chart.maxTx || 10)) * 0.05;
-  const safeMaxTx = Math.max(1, chart.maxTx || 1);
+  chart.targetMaxTx = Math.max(1, Math.ceil(peakTx * 1.25));
+  chart.maxTx = (chart.maxTx || 1) + (chart.targetMaxTx - (chart.maxTx || 1)) * 0.05;
+  const safeMaxTx = Math.max(0.1, chart.maxTx || 1);
 
   chart.currEnpRx += ((hEnpRx.length > 0 ? hEnpRx[hEnpRx.length - 1].val : 0) - chart.currEnpRx) * 0.15;
   chart.currWgRx += ((hWgRx.length > 0 ? hWgRx[hWgRx.length - 1].val : 0) - chart.currWgRx) * 0.15;
@@ -664,7 +671,12 @@ function renderAdminCombinedSpeedChart(now) {
   }
   ctx.stroke();
 
-  const formatUnit = (v) => v >= 1024 ? `${(v / 1024).toFixed(1)}M` : `${Math.round(v)}K`;
+  const formatUnit = (v) => {
+    if (v >= 1024) return `${(v / 1024).toFixed(1)}M`;
+    if (v >= 10) return `${Math.round(v)}K`;
+    return `${v.toFixed(1)}K`;
+  };
+
   ctx.fillStyle = themeColor;
   ctx.font = "8px 'Courier New', monospace";
   ctx.textBaseline = "middle";
@@ -749,7 +761,6 @@ function renderAdminCombinedSpeedChart(now) {
 
   drawSeries(hEnpRx, true, true, chart.currEnpRx, safeMaxRx);
   drawSeries(hWgRx, true, false, chart.currWgRx, safeMaxRx);
-
   drawSeries(hEnpTx, false, true, chart.currEnpTx, safeMaxTx);
   drawSeries(hWgTx, false, false, chart.currWgTx, safeMaxTx);
 
@@ -867,7 +878,6 @@ function formatBytes(bytes) {
  return (mb / 1024).toFixed(2) + " GB";
 }
 
-// Memory
 async function checkMemory() {
  if (!shouldRun()) return;
 
