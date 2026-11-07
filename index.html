@@ -63,6 +63,28 @@
           <div class="label"><b>HOST CPU:</b> <span id="cpuText">0%</span></div>
           <canvas id="cpuChart" class="monitor-chart"></canvas>
         </div>
+
+        <div class="mini-info-container admin-feature">
+          <div class="mini-info">
+            <b>PM2 TERMINAL</b><br>
+            <span id="adminPm2Status">stopped</span>
+          </div>
+          <div class="mini-info">
+            <b>WIREGUARD</b><br>
+            <span id="adminWgStatus">Disconnected</span>
+          </div>
+        </div>
+
+        <div class="mini-info-container admin-feature">
+          <div class="mini-info">
+            <b>EC2 IP & HEALTH</b><br>
+            <span id="adminEc2Ip">Calculating...</span> (<span id="adminEc2State">...</span>)
+          </div>
+          <div class="mini-info">
+            <b>CLOUDFRONT HEALTH</b><br>
+            <span id="adminCfStatus">Calculating...</span>
+          </div>
+        </div>
       </div>
 
       <div class="split">
@@ -151,6 +173,7 @@
           <!-- YouTube -->
           <div id="youtube" class="program invisible">
             =====<br>
+            <div id="youtubeServiceStatus">Initializing...</div><br>
             <section class="search-box flexbox">
               <div class="normal">
                 <span><b><span class="user">guest</span>@youtube:~$</b>&nbsp;</span>
@@ -162,8 +185,8 @@
 
             <button id="youtubeSearch">Initiate Scan</button>
 
-            <div id="youtube-status"></div>
-            <div id="youtube-metrics"></div>
+            <div id="youtubeStatus"></div>
+            <div id="youtubeMetrics"></div>
 
             <div id="videoDisplay" class="invisible" style="margin-top: 15px;">
               <div id="mainVideoDisplay"></div>
@@ -271,18 +294,16 @@
             <button type="button" id="fwd-btn">&rarr;</button>
             <button type="button" id="reload-btn">&#x21bb;</button>
             <input type="text" id="url-bar" placeholder="Enter URL or search query..." required autocomplete="off" />
+            <span id="proxy-service-status">Wisp: Checking...</span>
+            <span>|</span>
             <span id="proxy-status">Initializing...</span>
             <span>|</span>
             <button type="submit" id="go-btn" disabled>Go</button>
           </form>
 
-          <div id="proxy-metrics" style="display: block; padding: 4px 8px; border-bottom: 1px dashed var(--theme); font-size: 0.85em;">
-            Latency: -- | Transfer: 0 KB
-          </div>
-
           <iframe id="viewport" allow="clipboard-read; clipboard-write" sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"></iframe>
 
-          <div id="proxy-console-wrapper" style="display: none; height: 35%; margin-top: 5px; flex-direction: column; box-sizing: border-box;">
+          <div id="proxy-console-wrapper" style="display: none; height: 35%; flex-direction: column; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 6px; border: 2px solid var(--theme); border-bottom: none; background: transparent;">
               <span style="font-size: 0.85em; font-weight: bold; color: var(--theme);">PROXY CONSOLE</span>
               <button type="button" onclick="clearProxyConsole()" class="html-btn" style="width: auto; padding: 0 8px; margin: 0; cursor: pointer; background: var(--theme);">Clear</button>
@@ -324,14 +345,11 @@
                 <option value="httpupgrade">HTTPupgrade</option>
                 <option value="xhttp">XHTTP</option>
               </select>
-            </div>
+            </div> | 
 
-            <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;">
-              <input type="checkbox" id="inlineCssToggle" checked> Inline CSS
-            </label>
-
-            <button type="button" id="toggleProxyConsoleBtn" onclick="toggleProxyConsole()" style="width:fit-content;">Console</button>
-            <button type="button" id="apply-profile-btn" style="width:fit-content;">Apply</button>
+            <button id="inlineCssToggle" style="width:fit-content;">Inline CSS: ON</button> | 
+            <button type="button" id="toggleProxyConsoleBtn" onclick="toggleProxyConsole()" style="width:fit-content;">Console</button> | 
+            <div id="proxy-metrics">Latency: -- | Transfer: 0 KB</div>
           </div>
         </div>
 
