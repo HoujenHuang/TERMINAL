@@ -272,6 +272,7 @@ var admin = false;
 let adminPollInterval = null;
 let adminToken = null;
 let isAdminGraphMode = false;
+let isAdminLogged = false;
 
 function toggleAdminGraphMode() {
   if (!admin) return;
@@ -290,6 +291,11 @@ function toggleAdminGraphMode() {
     }
   });
 
+  if (typeof root !== "undefined" && root && root.resize) {
+    setTimeout(() => root.resize(), 50);
+  }
+
+  load(`[ OK ] Graph view switched to: ${isAdminGraphMode ? "SERVER" : "CLIENT"}`);
   if (typeof resumeFPS === "function") resumeFPS();
 }
 
@@ -307,6 +313,7 @@ async function renderAdminDashboard() {
       document.getElementById("adminGraphToggleBtn")?.classList.add("invisible");
       admin = false;
       adminToken = null;
+      setCookie("adminSession", null, -1);
       return;
     }
 
@@ -331,8 +338,30 @@ async function renderAdminDashboard() {
         netLabel.textContent = `RX: ${enp.rxRateFormatted} / ${wg.rxRateFormatted} | TX: ${enp.txRateFormatted} / ${wg.txRateFormatted}`;
       }
     }
+
+    const pm2El = document.getElementById("adminPm2Status");
+    if (pm2El && data.system) pm2El.textContent = data.system.pm2;
+
+    const wgEl = document.getElementById("adminWgStatus");
+    if (wgEl && data.system) wgEl.textContent = data.system.wireguard;
+
+    const ec2IpEl = document.getElementById("adminEc2Ip");
+    if (ec2IpEl && data.aws) {
+      ec2IpEl.textContent = isIpCensored ? censorIp(data.aws.ec2Ip) : data.aws.ec2Ip;
+    }
+
+    const ec2StateEl = document.getElementById("adminEc2State");
+    if (ec2StateEl && data.aws) ec2StateEl.textContent = data.aws.ec2State;
+
+    const cfStatusEl = document.getElementById("adminCfStatus");
+    if (cfStatusEl && data.aws) cfStatusEl.textContent = data.aws.cfStatus;
+
+    if (!isAdminLogged && data.aws) {
+      load(`[ OK ] Server pinged: EC2 (${data.aws.ec2State}) | CF (${data.aws.cfStatus})`);
+      isAdminLogged = true;
+    }
   } catch (err) {
-    console.error("Dashboard poll failed:", err);
+    load(`[ FAIL ] Unable to ping server`);
   }
 }
 
@@ -354,6 +383,7 @@ function applyAdminLogin(username, token) {
   const emailEl = document.getElementById("email");
   if (emailEl) emailEl.value = username;
 
+  load(`[ OK ] Sudo user authenticated: ${cleanUser}`);
   renderAdminDashboard();
   if (adminPollInterval) clearInterval(adminPollInterval);
   adminPollInterval = setInterval(renderAdminDashboard, 1000);
@@ -387,12 +417,11 @@ async function login() {
       document.getElementById("adminAlert").style.display = "block";
     }
   } catch (err) {
-    console.error("Login request failed:", err);
     document.getElementById("adminAlert").style.display = "block";
   }
 }
 
-function initAuthListeners() {
+function checkAndRestoreAdminSession() {
   ["email", "password"].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -414,10 +443,33 @@ function initAuthListeners() {
   }
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initAuthListeners);
-} else {
-  initAuthListeners();
+async function checkPublicServicesHealth() {
+  try {
+    const res = await fetch(`${API_GATEWAY}/api/health`, { signal: AbortSignal.timeout(4000) });
+    const data = await res.json();
+
+    const ytStatusEl = document.getElementById("youtubeServiceStatus");
+    if (ytStatusEl) {
+      const ytOk = data.youtube === "OK";
+      const gemOk = data.gemini === "OK";
+      ytStatusEl.innerHTML = `YouTube API: ${ytOk ? 'ONLINE' : 'OFFLINE'} | Tsarevich: ${gemOk ? 'AWAKENED' : 'DORMANT'}`;
+    }
+
+    const proxyStatusEl = document.getElementById("proxy-service-status");
+    if (proxyStatusEl) {
+      proxyStatusEl.textContent = `Wisp: ${data.wisp}`;
+    }
+
+    load(`[ OK ] YouTube pinged (${data.youtube})`);
+    load(`[ OK ] Tsarevich pinged (${data.gemini})`);
+    load(`[ OK ] Proxy pinged (${data.wisp})`);
+  } catch (e) {
+    const ytStatusEl = document.getElementById("youtubeServiceStatus");
+    if (ytStatusEl) ytStatusEl.textContent = "SERVICES: Gateway Unreachable";
+    const proxyStatusEl = document.getElementById("proxy-service-status");
+    if (proxyStatusEl) proxyStatusEl.textContent = "Wisp: Unreachable";
+    load("[ FAIL ] Service health gateway unreachable");
+  }
 }
 
 // Proxy
@@ -443,7 +495,7 @@ const reloadBtn = document.getElementById("reload-btn");
 const protoSelect = document.getElementById("proto-select");
 const secSelect = document.getElementById("sec-select");
 const transSelect = document.getElementById("trans-select");
-const applyProfileBtn = document.getElementById("apply-profile-btn");
+const inlineCssToggle = document.getElementById("inlineCssToggle");
 
 const modal = document.getElementById("proxy-modal");
 const openSettingsBtn = document.getElementById("open-settings-btn");
@@ -510,7 +562,7 @@ function syncLayerOptions() {
       } else {
         if (r.value === "vision") r.disabled = (proto !== "vless");
         else if (r.value === "none") r.disabled = (proto === "trojan");
-        else r.disabled = false;
+        else opt.disabled = false;
       }
 
       if (r.disabled) {
@@ -586,14 +638,25 @@ async function applyProfile() {
     if (currentUrl) navigateTo(currentUrl, false);
   } catch (e) {
     if (statusText) statusText.textContent = "Switch Failed";
-    console.error(e);
   }
 }
 
-if (protoSelect) protoSelect.addEventListener("change", syncLayerOptions);
-if (secSelect) secSelect.addEventListener("change", syncLayerOptions);
-if (transSelect) transSelect.addEventListener("change", syncLayerOptions);
-if (applyProfileBtn) applyProfileBtn.onclick = applyProfile;
+function handleSelectProfileChange() {
+  syncLayerOptions();
+  applyProfile();
+}
+
+if (protoSelect) protoSelect.addEventListener("change", handleSelectProfileChange);
+if (secSelect) secSelect.addEventListener("change", handleSelectProfileChange);
+if (transSelect) transSelect.addEventListener("change", handleSelectProfileChange);
+
+if (inlineCssToggle) {
+  inlineCssToggle.onclick = () => {
+    inlineCssToggle.textContent = inlineCssToggle.textContent.includes("ON")
+      ? "Inline CSS: OFF"
+      : "Inline CSS: ON";
+  };
+}
 
 document.querySelectorAll('#proxy-modal input[type="radio"]').forEach(radio => {
   radio.addEventListener("change", syncLayerOptions);
@@ -623,17 +686,16 @@ async function startEngine() {
     await libcurl.set_websocket(`${BASE_HOST}?profile=${encodeURIComponent(currentProfile)}`);
 
     if (statusText) statusText.textContent = `Ready (${currentProfile})`;
+    const proxyServiceStatus = document.getElementById("proxy-service-status");
+    if (proxyServiceStatus) proxyServiceStatus.textContent = "Wisp: ONLINE";
     if (goBtn) goBtn.disabled = false;
+    load(`[ OK ] Proxy engine ready: ${currentProfile}`);
   } catch (err) {
     if (statusText) statusText.textContent = "Error: " + err.message;
-    console.error("Proxy initialization error:", err);
+    const proxyServiceStatus = document.getElementById("proxy-service-status");
+    if (proxyServiceStatus) proxyServiceStatus.textContent = "Wisp: ERROR";
+    load(`[ FAIL ] Proxy initialization error: ${err.message}`);
   }
-}
-
-if (document.readyState === "loading") {
-  window.addEventListener("load", startEngine);
-} else {
-  startEngine();
 }
 
 // URL redirect unwrapping
@@ -721,8 +783,7 @@ async function fetchAssetTunnel(url, asBinary = false) {
     }
     return assetResult;
   } catch (err) {
-    logProxyConsole(`[Asset Error] ${url} - ${err.message || err}`);
-    console.warn(`[Inliner] Failed to fetch asset: ${url}`, err);
+    logProxyConsole(`[ FAIL ] ${url} - ${err.message || err}`);
     return null;
   }
 }
@@ -747,7 +808,9 @@ async function inlineCssUrls(cssText, baseUrl) {
 async function inlineSubresources(doc, baseUrl) {
   if (statusText) statusText.textContent = "Inlining styles & assets...";
 
-  const inlineCssEnabled = document.getElementById("inlineCssToggle") ? document.getElementById("inlineCssToggle").checked : true;
+  const inlineCssToggleEl = document.getElementById("inlineCssToggle");
+  const inlineCssEnabled = inlineCssToggleEl ? inlineCssToggleEl.textContent.includes("ON") : true;
+
   const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel="stylesheet"]')] : [];
   const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 40);
 
@@ -1876,6 +1939,22 @@ function handleCommand(cmd) {
       setProgramForActiveTab("login", "login");
       setTimeout(() => document.getElementById("email")?.focus(), 50);
       return;
+    case "admin":
+      if (!admin) {
+        const saved = getCookie("adminSession");
+        if (saved && saved.username && saved.token) {
+          applyAdminLogin(saved.username, saved.token);
+        }
+      }
+      if (admin === true) {
+        toggleAdminGraphMode();
+        response = `Admin verified. Switched graph view to: ${isAdminGraphMode ? "SERVER" : "CLIENT"}.`;
+      } else {
+        setProgramForActiveTab("login", "login");
+        setTimeout(() => document.getElementById("email")?.focus(), 50);
+        response = "Authentication required. Redirecting to login...";
+      }
+      break;
     case "furries are cringe": response = "I agree"; break;
     case "clear": clearOutput(); return;
     default: response = `ERROR: Command not found: ${cmd}`;
@@ -2380,8 +2459,8 @@ queryInput.addEventListener("keydown", (e) => {
 
 async function searchVideos() {
   const query = document.getElementById('query').value.trim();
-  const sText = document.getElementById('youtube-status');
-  const metricsDiv = document.getElementById('youtube-metrics');
+  const sText = document.getElementById('youtubeStatus');
+  const metricsDiv = document.getElementById('youtubeMetrics');
   const resultsDiv = document.getElementById('results');
 
   if (!query) return alert("Please enter a query");
@@ -2488,6 +2567,8 @@ async function bootSystem() {
   checkBattery();
   checkConnection();
   generateAllSections();
+  startEngine();
+  checkAndRestoreAdminSession();
 
   const ipPromise = (async () => {
     try {
@@ -2512,8 +2593,10 @@ async function bootSystem() {
     try { await checkSpeed(); } catch (e) {}
   })();
 
+  const serviceHealthPromise = checkPublicServicesHealth();
+
   await Promise.race([
-    Promise.allSettled([ipPromise, weatherPromise, speedPromise]),
+    Promise.allSettled([ipPromise, weatherPromise, speedPromise, serviceHealthPromise]),
     new Promise(resolve => setTimeout(resolve, 5000))
   ]);
 
