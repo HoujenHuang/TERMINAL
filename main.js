@@ -761,9 +761,44 @@ async function fetchAssetTunnel(url, asBinary = false) {
   if (assetCache.has(cacheKey)) return assetCache.get(cacheKey);
 
   try {
-    const res = await libcurl.fetch(url, {
-      headers: { "User-Agent": SPOOFED_UA }
-    });
+    window.__proxyCookies = window.__proxyCookies || new Map();
+    let host = "";
+    try { host = new URL(url).hostname; } catch(e) {}
+    
+    const cookieHeader = Array.from(window.__proxyCookies.entries())
+      .filter(([domain]) => !domain || host.endsWith(domain))
+      .map(([, cookies]) => Array.from(cookies.entries()).map(([k, v]) => `${k}=${v}`).join("; "))
+      .filter(Boolean)
+      .join("; ");
+
+    const headers = {
+      "User-Agent": SPOOFED_UA,
+      "Accept": asBinary ? "*/*" : "text/css,*/*;q=0.1",
+      "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": asBinary ? "image" : "style",
+      "Sec-Fetch-Mode": "no-cors",
+      "Sec-Fetch-Site": "cross-site"
+    };
+
+    if (cookieHeader) {
+      headers["Cookie"] = cookieHeader;
+    }
+
+    const res = await libcurl.fetch(url, { headers });
+
+    const rawSetCookie = res.headers.get("set-cookie");
+    if (rawSetCookie && host) {
+      if (!window.__proxyCookies.has(host)) window.__proxyCookies.set(host, new Map());
+      const jar = window.__proxyCookies.get(host);
+      rawSetCookie.split(/,(?=\s*[^;=]+=[^;=]+)/).forEach(cookieStr => {
+        const parts = cookieStr.split(";")[0].split("=");
+        if (parts.length >= 2) {
+          jar.set(parts[0].trim(), parts.slice(1).join("=").trim());
+        }
+      });
+    }
 
     let assetResult = null;
     if (asBinary) {
@@ -861,12 +896,12 @@ async function inlineSubresources(doc, baseUrl) {
   }
 }
 
-// DOM rewriting
 function buildClientShim(targetUrl) {
   return `
     (function() {
       const TARGET_URL = ${JSON.stringify(targetUrl)};
       const SPOOFED_UA = ${JSON.stringify(SPOOFED_UA)};
+      const parsedTarget = new URL(TARGET_URL);
 
       try {
         window.RTCPeerConnection = undefined;
@@ -880,6 +915,32 @@ function buildClientShim(targetUrl) {
         navigator.mozGetUserMedia = undefined;
       } catch (e) {}
 
+      try {
+        if (navigator.serviceWorker) {
+          navigator.serviceWorker.register = () => Promise.reject(new Error("ServiceWorker disabled in proxy"));
+        }
+      } catch (e) {}
+
+      try {
+        const testKey = '__storage_probe__';
+        window.localStorage.setItem(testKey, testKey);
+        window.localStorage.removeItem(testKey);
+      } catch (e) {
+        const memoryStorage = new Map();
+        const storageShim = {
+          getItem: (k) => memoryStorage.has(String(k)) ? memoryStorage.get(String(k)) : null,
+          setItem: (k, v) => { memoryStorage.set(String(k), String(v)); },
+          removeItem: (k) => { memoryStorage.delete(String(k)); },
+          clear: () => { memoryStorage.clear(); },
+          key: (i) => Array.from(memoryStorage.keys())[i] || null,
+          get length() { return memoryStorage.size; }
+        };
+        try {
+          Object.defineProperty(window, 'localStorage', { value: storageShim, configurable: true });
+          Object.defineProperty(window, 'sessionStorage', { value: storageShim, configurable: true });
+        } catch (e2) {}
+      }
+
       const _log = console.log, _warn = console.warn, _error = console.error, _info = console.info;
       function relayConsole(level, args) {
         try {
@@ -891,6 +952,101 @@ function buildClientShim(targetUrl) {
       console.warn = function(...args) { relayConsole('warn', args); _warn && _warn.apply(console, args); };
       console.error = function(...args) { relayConsole('error', args); _error && _error.apply(console, args); };
       console.info = function(...args) { relayConsole('info', args); _info && _info.apply(console, args); };
+
+      function unwrap(url) {
+        if (!url) return url;
+        try {
+          const parsed = new URL(url);
+          if (parsed.searchParams.has("uddg")) {
+            return decodeURIComponent(parsed.searchParams.get("uddg"));
+          }
+          if (parsed.pathname === "/url" || parsed.pathname.endsWith("/url")) {
+            const q = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+            if (q && /^https?:\\/\\//i.test(q)) return decodeURIComponent(q);
+          }
+        } catch (e) {}
+        return url;
+      }
+
+      function resolveTarget(url) {
+        if (!url) return "";
+        try {
+          let str = String(url).trim();
+          if (str === window.location.href || str === TARGET_URL) return TARGET_URL;
+          if (str.startsWith("blob:")) {
+            str = str.slice(5);
+          }
+          if (window.location.origin && window.location.origin !== "null" && str.startsWith(window.location.origin)) {
+            const parsed = new URL(str);
+            if (parsed.pathname === window.location.pathname || parsed.pathname === "/") {
+              return TARGET_URL;
+            }
+            return new URL(parsed.pathname + parsed.search + parsed.hash, TARGET_URL).href;
+          }
+          return new URL(str, TARGET_URL).href;
+        } catch (e) {
+          return url;
+        }
+      }
+
+      function isInternalUrl(u) {
+        if (!u) return true;
+        const str = String(u).trim();
+        return str.startsWith('data:') || str.startsWith('javascript:') || str.startsWith('#');
+      }
+
+      function sanitizeCode(code) {
+        if (!code || typeof code !== 'string') return code;
+        return code
+          .replace(/(top\\.location|window\\.top\\.location|parent\\.location)\\s*=/gi, "window.__dummyLocation =")
+          .replace(/\\bwindow\\.top\\b/g, "window.self")
+          .replace(/\\bwindow\\.location\\b/g, "window.__proxyLocation")
+          .replace(/\\bdocument\\.location\\b/g, "window.__proxyLocation")
+          .replace(/(?<![\\w$.])location\\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\\b/g, "__proxyLocation.$1");
+      }
+
+      const __proxyLocation = {
+        get href() { return parsedTarget.href; },
+        set href(val) { window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(val)) }, '*'); },
+        get protocol() { return parsedTarget.protocol; },
+        get host() { return parsedTarget.host; },
+        get hostname() { return parsedTarget.hostname; },
+        get port() { return parsedTarget.port; },
+        get pathname() { return parsedTarget.pathname; },
+        get search() { return parsedTarget.search; },
+        get hash() { return parsedTarget.hash; },
+        get origin() { return parsedTarget.origin; },
+        assign: (url) => window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*'),
+        replace: (url) => window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*'),
+        reload: () => window.parent.postMessage({ type: 'PROXY_NAV', url: TARGET_URL }, '*'),
+        toString: () => TARGET_URL
+      };
+      window.__proxyLocation = __proxyLocation;
+
+      try {
+        Object.defineProperty(document, 'baseURI', {
+          get: () => TARGET_URL,
+          configurable: true
+        });
+        Object.defineProperty(document, 'URL', {
+          get: () => TARGET_URL,
+          configurable: true
+        });
+        Object.defineProperty(document, 'documentURI', {
+          get: () => TARGET_URL,
+          configurable: true
+        });
+        Object.defineProperty(document, 'domain', {
+          get: () => parsedTarget.hostname,
+          set: () => {},
+          configurable: true
+        });
+        Object.defineProperty(document, 'location', {
+          get: () => __proxyLocation,
+          set: (v) => { __proxyLocation.href = v; },
+          configurable: true
+        });
+      } catch (e) {}
 
       try {
         const OrigURL = window.URL;
@@ -925,12 +1081,323 @@ function buildClientShim(targetUrl) {
         window.URL = ProxiedURL;
       } catch (e) {}
 
-      try {
-        Object.defineProperty(document, 'baseURI', {
-          get: () => TARGET_URL,
-          configurable: true
+      function getLibcurl() {
+        try {
+          if (window.parent && window.parent !== window && window.parent.libcurl) {
+            return window.parent.libcurl;
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      async function executeTunnelRequest(reqUrl, options) {
+        const curl = getLibcurl();
+        if (curl && typeof curl.fetch === "function") {
+          return await curl.fetch(reqUrl, options);
+        }
+
+        return await new Promise((resolve, reject) => {
+          const reqId = Math.random().toString(36).slice(2) + Date.now();
+          const timer = setTimeout(() => {
+            window.removeEventListener("message", onMsg);
+            reject(new Error("Proxy tunnel request timeout"));
+          }, 20000);
+
+          function onMsg(e) {
+            if (!e.data || e.data.type !== "PROXY_FETCH_RESPONSE" || e.data.id !== reqId) return;
+            clearTimeout(timer);
+            window.removeEventListener("message", onMsg);
+            if (e.data.success) {
+              resolve({
+                status: e.data.status,
+                statusText: e.data.statusText,
+                url: e.data.url || reqUrl,
+                headers: e.data.headers,
+                arrayBuffer: async () => e.data.body
+              });
+            } else {
+              reject(new Error(e.data.error || "Fetch failed"));
+            }
+          }
+
+          window.addEventListener("message", onMsg);
+          window.parent.postMessage({
+            type: "PROXY_FETCH_REQUEST",
+            id: reqId,
+            url: reqUrl,
+            init: options
+          }, "*");
         });
-      } catch (e) {}
+      }
+
+      const origCreateElement = document.createElement.bind(document);
+      document.createElement = function(tagName, options) {
+        const el = origCreateElement(tagName, options);
+        if (typeof tagName === 'string' && tagName.toLowerCase() === 'script') {
+          const origSetAttribute = el.setAttribute.bind(el);
+          let scriptSrc = '';
+          Object.defineProperty(el, 'src', {
+            get: () => scriptSrc,
+            set: (val) => {
+              scriptSrc = resolveTarget(val);
+              origSetAttribute('data-proxied-src', scriptSrc);
+              executeTunnelRequest(scriptSrc, { method: 'GET' })
+                .then(async (res) => {
+                  const buf = await res.arrayBuffer();
+                  const code = new TextDecoder().decode(buf);
+                  try {
+                    const runner = origCreateElement('script');
+                    if (el.type) runner.type = el.type;
+                    if (el.noModule) runner.noModule = el.noModule;
+                    runner.textContent = sanitizeCode(code);
+                    (document.head || document.documentElement).appendChild(runner);
+                    if (runner.type !== 'module') {
+                      runner.remove();
+                    }
+                    el.dispatchEvent(new Event('load'));
+                    if (typeof el.onload === 'function') {
+                      try { el.onload(new Event('load')); } catch(e) {}
+                    }
+                  } catch (evalErr) {
+                    el.dispatchEvent(new Event('error'));
+                    if (typeof el.onerror === 'function') {
+                      try { el.onerror(new Event('error')); } catch(e) {}
+                    }
+                  }
+                })
+                .catch(() => {
+                  el.dispatchEvent(new Event('error'));
+                  if (typeof el.onerror === 'function') {
+                    try { el.onerror(new Event('error')); } catch(e) {}
+                  }
+                });
+            },
+            configurable: true
+          });
+          el.setAttribute = function(name, val) {
+            if (name && name.toLowerCase() === 'src') {
+              el.src = val;
+            } else {
+              origSetAttribute(name, val);
+            }
+          };
+        }
+        return el;
+      };
+
+      const origFetch = window.fetch;
+      window.fetch = async function(input, init = {}) {
+        let rawUrl = (typeof input === "string") ? input : (input && input.url ? input.url : String(input));
+        if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("javascript:")) {
+          return origFetch.apply(this, arguments);
+        }
+
+        const resolved = resolveTarget(rawUrl);
+        let method = (init && init.method) ? init.method : (input && typeof input === "object" && input.method ? input.method : "GET");
+        method = method.toUpperCase();
+
+        const reqHeaders = {};
+        if (input && typeof input === "object" && input.headers) {
+          try {
+            if (typeof input.headers.forEach === "function") {
+              input.headers.forEach((v, k) => { reqHeaders[k] = v; });
+            }
+          } catch(e) {}
+        }
+        if (init && init.headers) {
+          try {
+            if (typeof init.headers.forEach === "function") {
+              init.headers.forEach((v, k) => { reqHeaders[k] = v; });
+            } else if (Array.isArray(init.headers)) {
+              init.headers.forEach(([k, v]) => { reqHeaders[k] = v; });
+            } else if (typeof init.headers === "object") {
+              Object.assign(reqHeaders, init.headers);
+            }
+          } catch(e) {}
+        }
+
+        if (!reqHeaders["User-Agent"] && !reqHeaders["user-agent"]) reqHeaders["User-Agent"] = SPOOFED_UA;
+        if (!reqHeaders["Referer"] && !reqHeaders["referer"]) reqHeaders["Referer"] = TARGET_URL;
+        if (!reqHeaders["Origin"] && !reqHeaders["origin"]) reqHeaders["Origin"] = parsedTarget.origin;
+
+        let body = (init && init.body !== undefined) ? init.body : (input && typeof input === "object" && input.body ? input.body : undefined);
+        if (body && typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
+          body = body.toString();
+          if (!reqHeaders["Content-Type"]) reqHeaders["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+        }
+
+        const response = await executeTunnelRequest(resolved, {
+          method: method,
+          headers: reqHeaders,
+          body: body
+        });
+
+        const status = response.status || 200;
+        const statusText = response.statusText || "OK";
+        const isNullBody = (status === 204 || status === 205 || status === 304);
+        const buf = isNullBody ? null : await response.arrayBuffer();
+
+        const respHeaders = new Headers();
+        if (response.headers) {
+          if (typeof response.headers.forEach === "function") {
+            response.headers.forEach((v, k) => respHeaders.set(k, v));
+          } else if (Array.isArray(response.headers)) {
+            response.headers.forEach(([k, v]) => respHeaders.set(k, v));
+          } else if (typeof response.headers.entries === "function" || (typeof Symbol !== "undefined" && response.headers[Symbol.iterator])) {
+            for (const [k, v] of (response.headers.entries ? response.headers.entries() : response.headers)) {
+              respHeaders.set(k, v);
+            }
+          } else if (typeof response.headers === "object") {
+            for (const k of Object.keys(response.headers)) {
+              respHeaders.set(k, response.headers[k]);
+            }
+          }
+        }
+
+        const finalRes = new Response(buf, {
+          status: status,
+          statusText: statusText,
+          headers: respHeaders
+        });
+
+        try {
+          Object.defineProperty(finalRes, "url", { value: response.url || resolved, writable: false });
+        } catch(e) {}
+
+        return finalRes;
+      };
+
+      const OrigXHR = window.XMLHttpRequest;
+      function ProxiedXMLHttpRequest() {
+        const xhr = this;
+        let _method = "GET";
+        let _url = "";
+        let _headers = {};
+        let _aborted = false;
+
+        xhr.readyState = 0;
+        xhr.status = 0;
+        xhr.statusText = "";
+        xhr.responseText = "";
+        xhr.response = "";
+        xhr.responseType = "";
+        xhr.responseURL = "";
+        xhr.responseXML = null;
+
+        const _listeners = {};
+        xhr.addEventListener = function(type, fn) {
+          _listeners[type] = _listeners[type] || [];
+          _listeners[type].push(fn);
+        };
+        xhr.removeEventListener = function(type, fn) {
+          if (!_listeners[type]) return;
+          _listeners[type] = _listeners[type].filter(f => f !== fn);
+        };
+
+        function _dispatch(type, extra = {}) {
+          const handler = xhr["on" + type];
+          if (typeof handler === "function") {
+            try { handler.call(xhr, Object.assign({ target: xhr, currentTarget: xhr }, extra)); } catch(e) {}
+          }
+          if (_listeners[type]) {
+            _listeners[type].forEach(fn => {
+              try { fn.call(xhr, Object.assign({ target: xhr, currentTarget: xhr }, extra)); } catch(e) {}
+            });
+          }
+        }
+
+        xhr.open = function(method, url) {
+          _method = method || "GET";
+          _url = url;
+          xhr.readyState = 1;
+          _dispatch("readystatechange");
+        };
+
+        xhr.setRequestHeader = function(k, v) {
+          _headers[k] = v;
+        };
+
+        xhr.getResponseHeader = function(name) {
+          return xhr._respHeaders ? (xhr._respHeaders.get(name) || null) : null;
+        };
+
+        xhr.getAllResponseHeaders = function() {
+          return xhr._rawHeaders || "";
+        };
+
+        xhr.overrideMimeType = function() {};
+
+        xhr.abort = function() {
+          _aborted = true;
+          _dispatch("abort");
+        };
+
+        xhr.send = function(body) {
+          _dispatch("loadstart");
+          window.fetch(_url, {
+            method: _method,
+            headers: _headers,
+            body: body
+          }).then(async (res) => {
+            if (_aborted) return;
+            xhr.status = res.status;
+            xhr.statusText = res.statusText;
+            xhr.responseURL = res.url || resolveTarget(_url);
+            xhr._respHeaders = res.headers;
+
+            let raw = "";
+            if (res.headers && typeof res.headers.forEach === "function") {
+              res.headers.forEach((v, k) => { raw += k + ": " + v + "\\r\\n"; });
+            }
+            xhr._rawHeaders = raw;
+
+            xhr.readyState = 2;
+            _dispatch("readystatechange");
+
+            xhr.readyState = 3;
+            _dispatch("readystatechange");
+
+            if (xhr.responseType === "arraybuffer") {
+              xhr.response = await res.arrayBuffer();
+            } else if (xhr.responseType === "blob") {
+              xhr.response = await res.blob();
+            } else if (xhr.responseType === "json") {
+              try {
+                xhr.response = await res.json();
+              } catch(e) {
+                xhr.response = null;
+              }
+            } else {
+              const text = await res.text();
+              xhr.responseText = text;
+              xhr.response = text;
+              if (xhr.responseType === "document") {
+                xhr.responseXML = new DOMParser().parseFromString(text, "text/html");
+              }
+            }
+
+            xhr.readyState = 4;
+            _dispatch("readystatechange");
+            _dispatch("load");
+            _dispatch("loadend");
+          }).catch(err => {
+            if (_aborted) return;
+            xhr.readyState = 4;
+            _dispatch("readystatechange");
+            _dispatch("error", { error: err });
+            _dispatch("loadend");
+          });
+        };
+      }
+      ProxiedXMLHttpRequest.prototype = OrigXHR ? OrigXHR.prototype : Object.prototype;
+      window.XMLHttpRequest = ProxiedXMLHttpRequest;
+
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon = function(url, data) {
+          window.fetch(url, { method: "POST", body: data }).catch(() => {});
+          return true;
+        };
+      }
 
       window.onerror = function(msg, url, line, col) {
         window.parent.postMessage({
@@ -944,45 +1411,6 @@ function buildClientShim(targetUrl) {
           text: 'Unhandled Rejection: ' + (e.reason ? (e.reason.message || e.reason) : '')
         }, '*');
       });
-
-      function unwrap(url) {
-        if (!url) return url;
-        try {
-          const parsed = new URL(url);
-          if (parsed.searchParams.has("uddg")) {
-            return decodeURIComponent(parsed.searchParams.get("uddg"));
-          }
-          if (parsed.pathname === "/url" || parsed.pathname.endsWith("/url")) {
-            const q = parsed.searchParams.get("q") || parsed.searchParams.get("url");
-            if (q && /^https?:\\/\\//i.test(q)) return decodeURIComponent(q);
-          }
-        } catch (e) {}
-        return url;
-      }
-
-      function resolveTarget(url) {
-        if (!url) return "";
-        try {
-          const str = String(url).trim();
-          if (str.startsWith("blob:") || str === window.location.href) return TARGET_URL;
-          if (window.location.origin && window.location.origin !== "null" && str.startsWith(window.location.origin)) {
-            const parsed = new URL(str);
-            if (parsed.pathname === window.location.pathname || parsed.pathname.includes(window.location.pathname)) {
-              return TARGET_URL;
-            }
-            return new URL(parsed.pathname + parsed.search + parsed.hash, TARGET_URL).href;
-          }
-          return new URL(str, TARGET_URL).href;
-        } catch (e) {
-          return url;
-        }
-      }
-
-      function isInternalUrl(u) {
-        if (!u) return true;
-        const str = String(u);
-        return str.startsWith('blob:') || str.startsWith('data:') || str.startsWith('javascript:') || (window.location.host && str.includes(window.location.host));
-      }
 
       function syncTitle() {
         if (document.title) {
@@ -1062,6 +1490,44 @@ function buildClientShim(targetUrl) {
         const target = actionUrl + (actionUrl.includes('?') ? '&' : '?') + params;
         window.parent.postMessage({ type: 'PROXY_NAV', url: target }, '*');
       }, true);
+
+      function activateFragmentPolyfill() {
+        const loadFragment = async (el) => {
+          if (el.dataset.fragLoaded) return;
+          el.dataset.fragLoaded = "true";
+          const rawSrc = el.getAttribute("src") || el.getAttribute("data-url") || el.getAttribute("data-src") || el.getAttribute("data-base-src");
+          if (!rawSrc) return;
+          const fetchUrl = resolveTarget(rawSrc);
+          const acceptHeader = el.getAttribute("accept") || "text/fragment+html, text/html, */*";
+          try {
+            const res = await window.fetch(fetchUrl, {
+              headers: {
+                "Accept": acceptHeader,
+                "X-Requested-With": "XMLHttpRequest"
+              }
+            });
+            if (res.ok) {
+              const html = await res.text();
+              el.innerHTML = html;
+            }
+          } catch(e) {}
+        };
+
+        const scan = () => {
+          document.querySelectorAll("include-fragment, poll-include-fragment, turbo-frame").forEach(loadFragment);
+        };
+        scan();
+        const obs = new MutationObserver(scan);
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => {
+          activateFragmentPolyfill();
+        });
+      } else {
+        activateFragmentPolyfill();
+      }
     })();
   `;
 }
@@ -1071,7 +1537,26 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, "text/html");
 
-  doc.querySelectorAll("meta[http-equiv='Content-Security-Policy' i], meta[http-equiv='X-Frame-Options' i]").forEach(el => el.remove());
+  const canonicalLink = doc.querySelector("link[rel='canonical' i]");
+  if (canonicalLink) {
+    const rawCanonical = canonicalLink.getAttribute("href");
+    if (rawCanonical) {
+      try {
+        const resolvedCanonical = resolveRelative(rawCanonical.trim(), targetUrl);
+        const parsedCanonical = new URL(resolvedCanonical);
+        const parsedTarget = new URL(targetUrl);
+        if (parsedCanonical.hostname === parsedTarget.hostname) {
+          targetUrl = resolvedCanonical;
+          currentUrl = resolvedCanonical;
+          if (urlBar) urlBar.value = resolvedCanonical;
+        }
+      } catch (e) {}
+    }
+  }
+
+  doc.querySelectorAll("meta[http-equiv='Content-Security-Policy' i], meta[http-equiv='X-Frame-Options' i], meta[name='referrer' i]").forEach(el => el.remove());
+  doc.querySelectorAll("[integrity]").forEach(el => el.removeAttribute("integrity"));
+  doc.querySelectorAll("[crossorigin]").forEach(el => el.removeAttribute("crossorigin"));
 
   const metaRefresh = doc.querySelector("meta[http-equiv='refresh' i]");
   if (metaRefresh) {
@@ -1087,12 +1572,6 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
     }
   }
 
-  doc.querySelectorAll("script").forEach(script => {
-    if (script.textContent && /(top\.location|window\.top\.location|parent\.location)\s*=/i.test(script.textContent)) {
-      script.textContent = script.textContent.replace(/(top\.location|window\.top\.location|parent\.location)\s*=/gi, "/* protected */ window.__dummyLocation =");
-    }
-  });
-
   doc.querySelectorAll("base").forEach(el => el.remove());
   const baseTag = doc.createElement("base");
   baseTag.href = targetUrl;
@@ -1101,15 +1580,99 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
 
   doc.querySelectorAll("a[target], form[target]").forEach(el => el.setAttribute("target", "_self"));
 
-  doc.querySelectorAll("a[href]").forEach(el => {
-    const raw = el.getAttribute("href");
-    if (raw && !raw.startsWith("#") && !raw.toLowerCase().startsWith("javascript:")) {
-      const resolved = unwrapRedirectUrl(resolveRelative(raw, targetUrl));
-      el.setAttribute("href", resolved);
+  doc.querySelectorAll("video[src], audio[src], source[src]").forEach(el => {
+    const raw = el.getAttribute("src");
+    if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
+      el.setAttribute("src", resolveRelative(raw, targetUrl));
+    }
+  });
+
+  doc.querySelectorAll("video[poster]").forEach(el => {
+    const raw = el.getAttribute("poster");
+    if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
+      el.setAttribute("poster", resolveRelative(raw, targetUrl));
+    }
+  });
+
+  const fragmentTags = [...doc.querySelectorAll("include-fragment, poll-include-fragment, turbo-frame")];
+  if (fragmentTags.length > 0) {
+    logProxyConsole(`[Inliner] Pre-fetching ${fragmentTags.length} dynamic fragments...`);
+    const fragmentPromises = fragmentTags.map(async (frag) => {
+      let src = frag.getAttribute("src") || frag.getAttribute("data-url") || frag.getAttribute("data-src") || frag.getAttribute("data-base-src");
+      if (!src) return;
+      let absUrl = resolveRelative(src, targetUrl);
+      const acceptHeader = frag.getAttribute("accept") || "text/fragment+html, text/html, */*";
+      try {
+        let res = await libcurl.fetch(absUrl, {
+          headers: {
+            "User-Agent": SPOOFED_UA,
+            "Accept": acceptHeader,
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": targetUrl
+          }
+        });
+        if (res && res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+          absUrl = resolveRelative(res.headers.get("location"), absUrl);
+          res = await libcurl.fetch(absUrl, {
+            headers: {
+              "User-Agent": SPOOFED_UA,
+              "Accept": acceptHeader,
+              "X-Requested-With": "XMLHttpRequest",
+              "Referer": targetUrl
+            }
+          });
+        }
+        if (res && res.status >= 200 && res.status < 400) {
+          const fragHtml = await res.text();
+          if (fragHtml && fragHtml.trim()) {
+            frag.innerHTML = fragHtml;
+            frag.setAttribute("data-frag-loaded", "true");
+          }
+        }
+      } catch (err) {
+        logProxyConsole(`[Fragment Error] ${absUrl} - ${err.message || err}`);
+      }
+    });
+    await Promise.allSettled(fragmentPromises);
+  }
+
+  const externalScripts = [...doc.querySelectorAll("script[src]")];
+  await Promise.allSettled(externalScripts.map(async (script) => {
+    const rawSrc = script.getAttribute("src");
+    if (rawSrc && !rawSrc.startsWith("data:") && !rawSrc.startsWith("blob:")) {
+      const absSrc = resolveRelative(rawSrc, targetUrl);
+      const scriptContent = await fetchAssetTunnel(absSrc, false);
+      if (scriptContent) {
+        script.removeAttribute("src");
+        script.textContent = scriptContent.replace(/<\/script/gi, "<\\/script");
+      } else {
+        script.setAttribute("src", absSrc);
+      }
+    }
+  }));
+
+  doc.querySelectorAll("script").forEach(script => {
+    if (script.textContent) {
+      let code = script.textContent;
+      if (/(top\.location|window\.top\.location|parent\.location)\s*=/i.test(code)) {
+        code = code.replace(/(top\.location|window\.top\.location|parent\.location)\s*=/gi, "window.__dummyLocation =");
+      }
+      code = code.replace(/\bwindow\.top\b/g, "window.self");
+      code = code.replace(/\bwindow\.location\b/g, "window.__proxyLocation");
+      code = code.replace(/\bdocument\.location\b/g, "window.__proxyLocation");
+      code = code.replace(/(?<![\w$.])location\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\b/g, "__proxyLocation.$1");
+      script.textContent = code.replace(/<\/script/gi, "<\\/script");
     }
   });
 
   await inlineSubresources(doc, targetUrl);
+
+  const styleTags = [...doc.querySelectorAll("style")];
+  for (const style of styleTags) {
+    if (style.textContent && style.textContent.includes("url(")) {
+      style.textContent = await inlineCssUrls(style.textContent, targetUrl);
+    }
+  }
 
   const scriptTag = doc.createElement("script");
   scriptTag.textContent = buildClientShim(targetUrl);
@@ -1162,13 +1725,46 @@ async function navigateTo(url, pushHistory = true) {
   }
 
   try {
-    const response = await libcurl.fetch(url, {
-      headers: {
-        "User-Agent": SPOOFED_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml,application/pdf;q=0.9,*/*;q=0.8",
-        "Upgrade-Insecure-Requests": "1"
-      }
-    });
+    window.__proxyCookies = window.__proxyCookies || new Map();
+    let host = "";
+    try { host = new URL(url).hostname; } catch(e) {}
+
+    const cookieHeader = Array.from(window.__proxyCookies.entries())
+      .filter(([domain]) => !domain || host.endsWith(domain))
+      .map(([, cookies]) => Array.from(cookies.entries()).map(([k, v]) => `${k}=${v}`).join("; "))
+      .filter(Boolean)
+      .join("; ");
+
+    const reqHeaders = {
+      "User-Agent": SPOOFED_UA,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1"
+    };
+
+    if (cookieHeader) {
+      reqHeaders["Cookie"] = cookieHeader;
+    }
+
+    const response = await libcurl.fetch(url, { headers: reqHeaders });
+
+    const rawSetCookie = response.headers.get("set-cookie");
+    if (rawSetCookie && host) {
+      if (!window.__proxyCookies.has(host)) window.__proxyCookies.set(host, new Map());
+      const jar = window.__proxyCookies.get(host);
+      rawSetCookie.split(/,(?=\s*[^;=]+=[^;=]+)/).forEach(cookieStr => {
+        const parts = cookieStr.split(";")[0].split("=");
+        if (parts.length >= 2) {
+          jar.set(parts[0].trim(), parts.slice(1).join("=").trim());
+        }
+      });
+    }
 
     const redirectLocation = response.headers.get("location");
     if (redirectLocation && response.status >= 300 && response.status < 400) {
@@ -1336,6 +1932,39 @@ window.addEventListener("message", (e) => {
   }
   if (e.data.type === "PROXY_CONSOLE_LOG" && e.data.text) logProxyConsole(`[${e.data.level || 'LOG'}] ${e.data.text}`);
   if (e.data.type === "PROXY_CONSOLE_ERROR" && e.data.text) logProxyConsole(`[ERROR] ${e.data.text}`);
+
+  if (e.data.type === "PROXY_FETCH_REQUEST" && e.data.url && typeof libcurl !== "undefined") {
+    const { id, url, init } = e.data;
+    const source = e.source;
+    libcurl.fetch(url, init || {}).then(async (res) => {
+      const buf = await res.arrayBuffer();
+      const headers = [];
+      if (res.headers && res.headers.forEach) {
+        res.headers.forEach((v, k) => headers.push([k, v]));
+      }
+      if (source && source.postMessage) {
+        source.postMessage({
+          type: "PROXY_FETCH_RESPONSE",
+          id,
+          success: true,
+          status: res.status,
+          statusText: res.statusText,
+          url: res.url || url,
+          headers,
+          body: buf
+        }, "*", [buf]);
+      }
+    }).catch(err => {
+      if (source && source.postMessage) {
+        source.postMessage({
+          type: "PROXY_FETCH_RESPONSE",
+          id,
+          success: false,
+          error: err.message || String(err)
+        }, "*");
+      }
+    });
+  }
 });
 
 // Code editor
@@ -2631,3 +3260,1490 @@ function showTerminal() {
     resumeFPS();
   }, 1200);
 }
+
+// Battery saver
+let isActive = true;
+let isTabVisible = !document.hidden;
+let tabHiddenTime = 0;
+
+document.addEventListener("visibilitychange", () => {
+ const now = performance.now();
+ if (document.hidden) {
+   isTabVisible = false;
+   tabHiddenTime = now;
+ } else {
+   isTabVisible = true;
+   if (tabHiddenTime > 0) {
+     const timeHidden = now - tabHiddenTime;
+     pauseChartTimeline(timeHidden);
+     tabHiddenTime = 0;
+   }
+   if (start && typeof resumeFPS === "function") {
+     resumeFPS();
+   }
+ }
+});
+
+function toggleBatterySaver() {
+ isActive = !isActive;
+
+ if (!isActive) {
+   Object.values(charts).forEach(chart => {
+     if (chart && chart.el) {
+       const ctx = chart.el.getContext("2d");
+       ctx.clearRect(0, 0, chart.el.width, chart.el.height);
+     }
+   });
+   closeSide();
+ } else if (!document.hidden) {
+   if (typeof resumeFPS === "function") resumeFPS();
+   if (admin && typeof renderAdminDashboard === "function") renderAdminDashboard();
+ }
+}
+
+function shouldRun() {
+ return isActive && isTabVisible;
+}
+
+// Time
+let isTimeInit = false;
+
+function displayTime() {
+ if (!shouldRun()) {
+   document.getElementById("clock").innerText = "00:00:00";
+   return;
+ }
+
+ const now = new Date();
+
+ let hours = now.getHours();
+ let minutes = now.getMinutes();
+ let seconds = now.getSeconds();
+
+ minutes = minutes < 10 ? "0" + minutes : minutes;
+ seconds = seconds < 10 ? "0" + seconds : seconds;
+
+ const timeString = hours + ":" + minutes + ":" + seconds;
+
+ document.getElementById("clock").innerText = timeString;
+
+ if (!isTimeInit) {
+   load(`[ OK ] Clock initialized: ${timeString}`);
+   isTimeInit = true;
+ }
+}
+
+// Date
+function displayDate() {
+ const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+ const d = new Date();
+
+ let year = d.getFullYear();
+ document.getElementById("year").textContent = year;
+
+ let month = months[d.getMonth()];
+ document.getElementById("month").textContent = month;
+
+ let day = d.getDate();
+ document.getElementById("day").textContent = day;
+
+ load(`[ OK ] Date initialized: ${day} ${month} ${year}`);
+}
+
+// Uptime
+let isUptimeInit = false;
+
+let totalSeconds = 0;
+const timerElement = document.getElementById("timer");
+
+function updateTimer() {
+ if (!shouldRun()) {
+   timerElement.innerText = "00:00:00";
+   return;
+ }
+
+ totalSeconds++;
+
+ let hours = Math.floor(totalSeconds / 3600);
+ let minutes = Math.floor((totalSeconds % 3600) / 60);
+ let seconds = totalSeconds % 60;
+
+ let hDisplay = hours.toString().padStart(2, "0");
+ let mDisplay = minutes.toString().padStart(2, "0");
+ let sDisplay = seconds.toString().padStart(2, "0");
+
+ timerElement.textContent = `${hDisplay}:${mDisplay}:${sDisplay}`;
+
+ if (!isUptimeInit) {
+   load(`[ OK ] Uptime initialized: ${hDisplay}:${mDisplay}:${sDisplay}`);
+   isUptimeInit = true;
+ }
+}
+
+// Browser
+function checkBrowser() {
+ const browser = document.getElementById("browser");
+ const userAgent = navigator.userAgent;
+
+ if (userAgent.includes("Chrome") && !userAgent.includes("Edg")) {
+   browser.textContent = "CHROME";
+   load(`[ OK ] Operating System fetched: ${userAgent}`);
+ } else if (userAgent.includes("Firefox")) {
+   browser.textContent = "FIREFOX ⚠";
+   load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+ } else if (userAgent.includes("Safari") && !userAgent.includes("Chrome")) {
+   browser.textContent = "SAFARI ⚠";
+   load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+ } else if (userAgent.includes("Edg")) {
+   browser.textContent = "EDGE";
+   load(`[ OK ] Operating System fetched: ${userAgent}`);
+ } else if (userAgent.includes("Opera") || userAgent.includes("OPR")) {
+   browser.textContent = "OPERA";
+   load(`[ OK ] Operating System fetched: ${userAgent}`);
+ } else if (userAgent.includes("MSIE") || userAgent.includes("Trident")) {
+   browser.textContent = "IE ⚠";
+   load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+ } else {
+   browser.textContent = "UNKNOWN ⚠";
+   load(`[ WARN ] Non-Chromium Operating System detected: ${userAgent}`);
+ }
+}
+
+// Charts
+const charts = {
+ fps: {
+   el: document.getElementById("fpsChart"),
+   text: document.getElementById("fpsText"),
+   history: [],
+   currentVal: 60,
+   targetVal: 60,
+   max: 60,
+   targetMax: 60,
+   timeWindow: 30000,
+   inverted: false
+ },
+ memory: {
+   el: document.getElementById("memChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 20,
+   targetMax: 20,
+   timeWindow: 60000,
+   inverted: false
+ },
+ speedUp: {
+   el: document.getElementById("speedUpChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 5,
+   targetMax: 5,
+   timeWindow: 60000,
+   inverted: false
+ },
+ speedDown: {
+   el: document.getElementById("speedDownChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 5,
+   targetMax: 5,
+   timeWindow: 60000,
+   inverted: true
+ },
+ cpu: {
+   el: document.getElementById("cpuChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 100,
+   targetMax: 100,
+   timeWindow: 30000,
+   inverted: false
+ },
+ hostMem: {
+   el: document.getElementById("hostMemChart"),
+   history: [],
+   currentVal: 0,
+   targetVal: 0,
+   max: 100,
+   targetMax: 100,
+   timeWindow: 30000,
+   inverted: false
+ },
+ speedCombined: {
+   el: document.getElementById("speedCombinedChart"),
+   timeWindow: 60000
+ },
+ adminNetCombined: {
+   el: document.getElementById("adminNetCombinedChart"),
+   historyEnpRx: [],
+   historyWgRx: [],
+   historyEnpTx: [],
+   historyWgTx: [],
+   currEnpRx: 0,
+   currWgRx: 0,
+   currEnpTx: 0,
+   currWgTx: 0,
+   timeWindow: 30000,
+   maxRx: 10,
+   targetMaxRx: 10,
+   maxTx: 10,
+   targetMaxTx: 10
+ }
+};
+
+function pauseChartTimeline(duration) {
+ if (duration <= 0) return;
+ Object.values(charts).forEach(chart => {
+   if (!chart) return;
+   if (chart.history) {
+     for (let i = 0; i < chart.history.length; i++) chart.history[i].time += duration;
+   }
+   ['historyEnpRx', 'historyWgRx', 'historyEnpTx', 'historyWgTx'].forEach(prop => {
+     if (chart[prop]) {
+       for (let i = 0; i < chart[prop].length; i++) chart[prop][i].time += duration;
+     }
+   });
+ });
+}
+
+function pushChartMetric(key, value) {
+ const chart = charts[key];
+ if (!chart) return;
+
+ const now = performance.now();
+ const safeVal = Math.max(0, Number(value) || 0);
+
+ chart.targetVal = safeVal;
+ chart.history.push({ time: now, val: safeVal });
+}
+
+function updateAdminGraphs(data) {
+  if (!data || !data.system) return;
+  const now = performance.now();
+
+  if (typeof data.system.cpuVal !== "undefined") {
+    pushChartMetric("cpu", data.system.cpuVal);
+  }
+
+  if (typeof data.system.memPercent !== "undefined") {
+    pushChartMetric("hostMem", data.system.memPercent);
+  }
+
+  if (data.system.interfaces) {
+    const enp = data.system.interfaces.enp0s31f6 || { rxRate: 0, txRate: 0 };
+    const wg = data.system.interfaces.wg0 || { rxRate: 0, txRate: 0 };
+    const chart = charts.adminNetCombined;
+
+    if (chart) {
+      chart.historyEnpRx.push({ time: now, val: enp.rxRate });
+      chart.historyWgRx.push({ time: now, val: wg.rxRate });
+      chart.historyEnpTx.push({ time: now, val: enp.txRate });
+      chart.historyWgTx.push({ time: now, val: wg.txRate });
+    }
+  }
+}
+window.updateAdminGraphs = updateAdminGraphs;
+
+function resizeHiDpiCanvas(canvas) {
+ const dpr = window.devicePixelRatio || 1;
+ const displayWidth = Math.round(canvas.clientWidth || 100);
+ const displayHeight = Math.round(canvas.clientHeight || 85);
+
+ const targetPixelWidth = Math.round(displayWidth * dpr);
+ const targetPixelHeight = Math.round(displayHeight * dpr);
+
+ const ctx = canvas.getContext("2d");
+ if (Math.abs(canvas.width - targetPixelWidth) > 2 || Math.abs(canvas.height - targetPixelHeight) > 2) {
+   canvas.width = targetPixelWidth;
+   canvas.height = targetPixelHeight;
+   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+ }
+ return { ctx, width: displayWidth, height: displayHeight };
+}
+
+function parseRgbComponents(colorStr) {
+ const m = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+ if (m) return [parseInt(m[1]), parseInt(m[2]), parseInt(m[3])];
+ if (colorStr.startsWith("#")) {
+   let hex = colorStr.slice(1);
+   if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+   const num = parseInt(hex, 16);
+   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+ }
+ return [51, 255, 51];
+}
+
+function renderChart(key, now) {
+ const chart = charts[key];
+ if (!chart) return;
+ if (!chart.el) chart.el = document.getElementById(key === "cpu" ? "cpuChart" : (key === "hostMem" ? "hostMemChart" : `${key}Chart`));
+ if (!chart.el || chart.el.clientHeight <= 0) return;
+
+ const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
+ if (width <= 0 || height <= 0) return;
+
+ const oldestAllowed = now - chart.timeWindow - 4000;
+ while (chart.history.length > 0 && chart.history[0].time < oldestAllowed) {
+   chart.history.shift();
+ }
+
+ let peak = (key === "fps") ? 60 : 5;
+ for (let i = 0; i < chart.history.length; i++) {
+   if (chart.history[i].val > peak) peak = chart.history[i].val;
+ }
+
+ if (key === "cpu") {
+   chart.targetMax = Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
+ } else if (key === "hostMem") {
+   chart.targetMax = Math.min(100, Math.max(10, Math.ceil(peak * 1.2)));
+ } else if (key === "fps") {
+   chart.targetMax = Math.max(60, Math.ceil(peak * 1.1));
+ } else {
+   chart.targetMax = Math.max(5, Math.ceil(peak * 1.25));
+ }
+
+ chart.max += (chart.targetMax - chart.max) * 0.05;
+ const safeMax = Math.max(1, chart.max || 1);
+ chart.currentVal += (chart.targetVal - chart.currentVal) * 0.12;
+
+ const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
+ const plotWidth = Math.max(10, width - padLeft - padRight);
+ const plotHeight = Math.max(10, height - padTop - padBottom);
+
+ const style = getComputedStyle(document.documentElement);
+ const themeColor = style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+ const [tr, tg, tb] = parseRgbComponents(themeColor);
+
+ ctx.clearRect(0, 0, width, height);
+
+ ctx.lineWidth = 1;
+ ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
+ ctx.setLineDash([]);
+
+ ctx.beginPath();
+ for (let i = 0; i <= 2; i++) {
+   const y = Math.round(padTop + (plotHeight / 2) * i) + 0.5;
+   ctx.moveTo(padLeft, y); ctx.lineTo(padLeft + plotWidth, y);
+ }
+ for (let i = 0; i <= 4; i++) {
+   const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+   ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
+ }
+ ctx.stroke();
+
+ ctx.fillStyle = themeColor;
+ ctx.font = "8px 'Courier New', monospace";
+ ctx.textBaseline = "middle";
+ ctx.textAlign = "right";
+
+ const topLabel = (key === "cpu" || key === "hostMem") ? `${Math.round(safeMax)}%` : Math.round(safeMax).toString();
+ if (chart.inverted) {
+   ctx.fillText("0", padLeft - 4, padTop + 2);
+   ctx.fillText(topLabel, padLeft - 4, padTop + plotHeight);
+ } else {
+   ctx.fillText(topLabel, padLeft - 4, padTop + 2);
+   ctx.fillText("0", padLeft - 4, padTop + plotHeight);
+ }
+
+ ctx.textAlign = "left";
+ ctx.textBaseline = "top";
+ ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
+ ctx.textAlign = "right";
+ ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
+
+ ctx.save();
+ ctx.beginPath();
+ ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
+ ctx.clip();
+
+ const getCoordinates = (timestamp, value) => {
+   const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
+   const x = padLeft + progress * plotWidth;
+   const normalizedVal = Math.min(Math.max(value, 0), safeMax);
+   const y = chart.inverted ? (padTop + (normalizedVal / safeMax) * plotHeight) : ((padTop + plotHeight) - (normalizedVal / safeMax) * plotHeight);
+   return { x, y };
+ };
+
+ const rawPoints = chart.history;
+ if (rawPoints.length > 0) {
+   let points = rawPoints.map(item => getCoordinates(item.time, item.val));
+   if (points[0].x > padLeft) {
+     points.unshift({ x: padLeft, y: points[0].y });
+   } else {
+     let crossIdx = -1;
+     for (let i = 0; i < points.length - 1; i++) {
+       if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
+         crossIdx = i; break;
+       }
+     }
+     if (crossIdx !== -1) {
+       const p0 = points[crossIdx], p1 = points[crossIdx + 1];
+       const dx = p1.x - p0.x;
+       const ratio = dx > 0 ? Math.min(1, Math.max(0, (padLeft - p0.x) / dx)) : 0;
+       points = points.slice(crossIdx + 1);
+       points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
+     }
+   }
+   points.push({ x: padLeft + plotWidth, y: getCoordinates(now, chart.currentVal).y });
+
+   if (points.length >= 2) {
+     const buildSmoothPath = () => {
+       ctx.beginPath();
+       ctx.moveTo(points[0].x, points[0].y);
+       for (let i = 0; i < points.length - 1; i++) {
+         const xc = (points[i].x + points[i + 1].x) / 2;
+         const yc = (points[i].y + points[i + 1].y) / 2;
+         ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+       }
+       ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+     };
+
+     const baselineY = chart.inverted ? padTop : (padTop + plotHeight);
+     buildSmoothPath();
+     ctx.lineTo(points[points.length - 1].x, baselineY);
+     ctx.lineTo(points[0].x, baselineY);
+     ctx.closePath();
+
+     const gradient = ctx.createLinearGradient(0, chart.inverted ? padTop : padTop + plotHeight, 0, chart.inverted ? padTop + plotHeight : padTop);
+     gradient.addColorStop(0, `rgba(${tr}, ${tg}, ${tb}, 0.28)`);
+     gradient.addColorStop(1, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
+     ctx.fillStyle = gradient;
+     ctx.fill();
+
+     buildSmoothPath();
+     ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.95)`;
+     ctx.lineWidth = 1.6;
+     ctx.setLineDash([]);
+     ctx.stroke();
+   }
+ }
+ ctx.restore();
+}
+
+function renderCombinedSpeedChart(now) {
+  const chart = charts.speedCombined;
+  if (!chart) return;
+  if (!chart.el) chart.el = document.getElementById("speedCombinedChart");
+  if (!chart.el || chart.el.clientHeight <= 0) return;
+
+  const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
+  if (width <= 0 || height <= 0) return;
+
+  const downHistory = charts.speedDown.history;
+  const upHistory = charts.speedUp.history;
+
+  const oldestAllowed = now - chart.timeWindow - 4000;
+  while (downHistory.length > 0 && downHistory[0].time < oldestAllowed) downHistory.shift();
+  while (upHistory.length > 0 && upHistory[0].time < oldestAllowed) upHistory.shift();
+
+  let peakDown = 1;
+  for (let i = 0; i < downHistory.length; i++) if (downHistory[i].val > peakDown) peakDown = downHistory[i].val;
+  charts.speedDown.targetMax = Math.max(1, Math.ceil(peakDown * 1.25));
+  charts.speedDown.max += (charts.speedDown.targetMax - charts.speedDown.max) * 0.05;
+  const safeMaxDown = Math.max(0.1, charts.speedDown.max || 1);
+
+  let peakUp = 1;
+  for (let i = 0; i < upHistory.length; i++) if (upHistory[i].val > peakUp) peakUp = upHistory[i].val;
+  charts.speedUp.targetMax = Math.max(1, Math.ceil(peakUp * 1.25));
+  charts.speedUp.max += (charts.speedUp.targetMax - charts.speedUp.max) * 0.05;
+  const safeMaxUp = Math.max(0.1, charts.speedUp.max || 1);
+
+  const lastDown = downHistory.length > 0 ? downHistory[downHistory.length - 1].val : charts.speedDown.targetVal;
+  charts.speedDown.currentVal += (lastDown - charts.speedDown.currentVal) * 0.15;
+
+  const lastUp = upHistory.length > 0 ? upHistory[upHistory.length - 1].val : charts.speedUp.targetVal;
+  charts.speedUp.currentVal += (lastUp - charts.speedUp.currentVal) * 0.15;
+
+  const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
+  const plotWidth = Math.max(10, width - padLeft - padRight);
+  const plotHeight = Math.max(10, height - padTop - padBottom);
+  const midY = Math.round(padTop + plotHeight / 2);
+
+  const style = getComputedStyle(document.documentElement);
+  const themeColor = style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+  const [tr, tg, tb] = parseRgbComponents(themeColor);
+
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft + plotWidth, padTop);
+  ctx.moveTo(padLeft, midY); ctx.lineTo(padLeft + plotWidth, midY);
+  ctx.moveTo(padLeft, padTop + plotHeight); ctx.lineTo(padLeft + plotWidth, padTop + plotHeight);
+
+  for (let i = 0; i <= 4; i++) {
+    const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+    ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
+  }
+  ctx.stroke();
+
+  const formatUnit = (v) => (v >= 10) ? Math.round(v).toString() : v.toFixed(1);
+  ctx.fillStyle = themeColor;
+  ctx.font = "8px 'Courier New', monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  ctx.fillText(`+${formatUnit(safeMaxDown)}`, padLeft - 4, padTop + 2);
+  ctx.fillText("0", padLeft - 4, midY);
+  ctx.fillText(`-${formatUnit(safeMaxUp)}`, padLeft - 4, padTop + plotHeight - 2);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
+  ctx.textAlign = "right";
+  ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
+  ctx.clip();
+
+  const drawHalfCurve = (rawPoints, isDownlink, currentVal, safeMax) => {
+    if (rawPoints.length === 0) return;
+    const halfH = midY - padTop;
+    const getCoords = (timestamp, value) => {
+      const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
+      const x = padLeft + progress * plotWidth;
+      const norm = Math.min(Math.max(value, 0), safeMax) / safeMax;
+      const y = isDownlink ? midY - (norm * halfH) : midY + (norm * halfH);
+      return { x, y };
+    };
+
+    let points = rawPoints.map(p => getCoords(p.time, p.val));
+    if (points[0].x > padLeft) {
+      points.unshift({ x: padLeft, y: points[0].y });
+    } else {
+      let crossIdx = -1;
+      for (let i = 0; i < points.length - 1; i++) {
+        if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
+          crossIdx = i; break;
+        }
+      }
+      if (crossIdx !== -1) {
+        const p0 = points[crossIdx], p1 = points[crossIdx + 1];
+        const dx = p1.x - p0.x;
+        const ratio = dx > 0 ? (padLeft - p0.x) / dx : 0;
+        points = points.slice(crossIdx + 1);
+        points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
+      }
+    }
+    points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
+
+    if (points.length >= 2) {
+      const buildSmoothPath = () => {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const xc = (points[i].x + points[i + 1].x) / 2;
+          const yc = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      };
+
+      buildSmoothPath();
+      ctx.lineTo(points[points.length - 1].x, midY);
+      ctx.lineTo(points[0].x, midY);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, isDownlink ? padTop : midY, 0, isDownlink ? midY : padTop + plotHeight);
+      grad.addColorStop(isDownlink ? 0 : 1, `rgba(${tr}, ${tg}, ${tb}, 0.22)`);
+      grad.addColorStop(isDownlink ? 1 : 0, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      buildSmoothPath();
+      ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.95)`;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([]);
+      ctx.stroke();
+    }
+  };
+
+  drawHalfCurve(downHistory, true, charts.speedDown.currentVal, safeMaxDown);
+  drawHalfCurve(upHistory, false, charts.speedUp.currentVal, safeMaxUp);
+
+  ctx.restore();
+}
+
+function renderAdminCombinedSpeedChart(now) {
+  const chart = charts.adminNetCombined;
+  if (!chart) return;
+  if (!chart.el) chart.el = document.getElementById("adminNetCombinedChart");
+  if (!chart.el || chart.el.clientHeight <= 0) return;
+
+  const { ctx, width, height } = resizeHiDpiCanvas(chart.el);
+  if (width <= 0 || height <= 0) return;
+
+  const hEnpRx = chart.historyEnpRx || [];
+  const hWgRx = chart.historyWgRx || [];
+  const hEnpTx = chart.historyEnpTx || [];
+  const hWgTx = chart.historyWgTx || [];
+
+  const oldestAllowed = now - chart.timeWindow - 4000;
+  while (hEnpRx.length > 0 && hEnpRx[0].time < oldestAllowed) hEnpRx.shift();
+  while (hWgRx.length > 0 && hWgRx[0].time < oldestAllowed) hWgRx.shift();
+  while (hEnpTx.length > 0 && hEnpTx[0].time < oldestAllowed) hEnpTx.shift();
+  while (hWgTx.length > 0 && hWgTx[0].time < oldestAllowed) hWgTx.shift();
+
+  let peakRx = 1;
+  for (let i = 0; i < hEnpRx.length; i++) if (hEnpRx[i].val > peakRx) peakRx = hEnpRx[i].val;
+  for (let i = 0; i < hWgRx.length; i++) if (hWgRx[i].val > peakRx) peakRx = hWgRx[i].val;
+  chart.targetMaxRx = Math.max(1, Math.ceil(peakRx * 1.25));
+  chart.maxRx = (chart.maxRx || 1) + (chart.targetMaxRx - (chart.maxRx || 1)) * 0.05;
+  const safeMaxRx = Math.max(0.1, chart.maxRx || 1);
+
+  let peakTx = 1;
+  for (let i = 0; i < hEnpTx.length; i++) if (hEnpTx[i].val > peakTx) peakTx = hEnpTx[i].val;
+  for (let i = 0; i < hWgTx.length; i++) if (hWgTx[i].val > peakTx) peakTx = hWgTx[i].val;
+  chart.targetMaxTx = Math.max(1, Math.ceil(peakTx * 1.25));
+  chart.maxTx = (chart.maxTx || 1) + (chart.targetMaxTx - (chart.maxTx || 1)) * 0.05;
+  const safeMaxTx = Math.max(0.1, chart.maxTx || 1);
+
+  chart.currEnpRx += ((hEnpRx.length > 0 ? hEnpRx[hEnpRx.length - 1].val : 0) - chart.currEnpRx) * 0.15;
+  chart.currWgRx += ((hWgRx.length > 0 ? hWgRx[hWgRx.length - 1].val : 0) - chart.currWgRx) * 0.15;
+  chart.currEnpTx += ((hEnpTx.length > 0 ? hEnpTx[hEnpTx.length - 1].val : 0) - chart.currEnpTx) * 0.15;
+  chart.currWgTx += ((hWgTx.length > 0 ? hWgTx[hWgTx.length - 1].val : 0) - chart.currWgTx) * 0.15;
+
+  const padLeft = 34, padRight = 8, padTop = 4, padBottom = 14;
+  const plotWidth = Math.max(10, width - padLeft - padRight);
+  const plotHeight = Math.max(10, height - padTop - padBottom);
+  const midY = Math.round(padTop + plotHeight / 2);
+
+  const style = getComputedStyle(document.documentElement);
+  const themeColor = style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+  const [tr, tg, tb] = parseRgbComponents(themeColor);
+
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, 0.12)`;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop); ctx.lineTo(padLeft + plotWidth, padTop);
+  ctx.moveTo(padLeft, midY); ctx.lineTo(padLeft + plotWidth, midY);
+  ctx.moveTo(padLeft, padTop + plotHeight); ctx.lineTo(padLeft + plotWidth, padTop + plotHeight);
+
+  for (let i = 0; i <= 4; i++) {
+    const x = Math.round(padLeft + (plotWidth / 4) * i) + 0.5;
+    ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotHeight);
+  }
+  ctx.stroke();
+
+  const formatUnit = (v) => {
+    if (v >= 1024) return `${(v / 1024).toFixed(1)}M`;
+    if (v >= 10) return `${Math.round(v)}K`;
+    return `${v.toFixed(1)}K`;
+  };
+
+  ctx.fillStyle = themeColor;
+  ctx.font = "8px 'Courier New', monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  ctx.fillText(`+${formatUnit(safeMaxRx)}`, padLeft - 4, padTop + 2);
+  ctx.fillText("0", padLeft - 4, midY);
+  ctx.fillText(`-${formatUnit(safeMaxTx)}`, padLeft - 4, padTop + plotHeight - 2);
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`-${Math.round(chart.timeWindow / 1000)}s`, padLeft, padTop + plotHeight + 2);
+  ctx.textAlign = "right";
+  ctx.fillText("now", padLeft + plotWidth, padTop + plotHeight + 2);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(padLeft - 1, padTop - 1, plotWidth + 3, plotHeight + 2);
+  ctx.clip();
+
+  const drawSeries = (rawPoints, isDownlink, isDashed, currentVal, safeMax) => {
+    if (rawPoints.length === 0) return;
+    const halfH = midY - padTop;
+    const getCoords = (timestamp, value) => {
+      const progress = (timestamp - (now - chart.timeWindow)) / chart.timeWindow;
+      const x = padLeft + progress * plotWidth;
+      const norm = Math.min(Math.max(value, 0), safeMax) / safeMax;
+      const y = isDownlink ? midY - (norm * halfH) : midY + (norm * halfH);
+      return { x, y };
+    };
+
+    let points = rawPoints.map(p => getCoords(p.time, p.val));
+    if (points[0].x > padLeft) {
+      points.unshift({ x: padLeft, y: points[0].y });
+    } else {
+      let crossIdx = -1;
+      for (let i = 0; i < points.length - 1; i++) {
+        if (points[i].x <= padLeft && points[i + 1].x >= padLeft) {
+          crossIdx = i; break;
+        }
+      }
+      if (crossIdx !== -1) {
+        const p0 = points[crossIdx], p1 = points[crossIdx + 1];
+        const dx = p1.x - p0.x;
+        const ratio = dx > 0 ? (padLeft - p0.x) / dx : 0;
+        points = points.slice(crossIdx + 1);
+        points.unshift({ x: padLeft, y: p0.y + ratio * (p1.y - p0.y) });
+      }
+    }
+    points.push({ x: padLeft + plotWidth, y: getCoords(now, currentVal).y });
+
+    if (points.length >= 2) {
+      const buildSmoothPath = () => {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 0; i < points.length - 1; i++) {
+          const xc = (points[i].x + points[i + 1].x) / 2;
+          const yc = (points[i].y + points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      };
+
+      if (!isDashed) {
+        buildSmoothPath();
+        ctx.lineTo(points[points.length - 1].x, midY);
+        ctx.lineTo(points[0].x, midY);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, isDownlink ? padTop : midY, 0, isDownlink ? midY : padTop + plotHeight);
+        grad.addColorStop(isDownlink ? 0 : 1, `rgba(${tr}, ${tg}, ${tb}, 0.16)`);
+        grad.addColorStop(isDownlink ? 1 : 0, `rgba(${tr}, ${tg}, ${tb}, 0.0)`);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+
+      buildSmoothPath();
+      ctx.strokeStyle = `rgba(${tr}, ${tg}, ${tb}, ${isDashed ? 0.75 : 0.95})`;
+      ctx.lineWidth = isDashed ? 1.2 : 1.6;
+      ctx.setLineDash(isDashed ? [4, 3] : []);
+      ctx.stroke();
+    }
+  };
+
+  drawSeries(hEnpRx, true, true, chart.currEnpRx, safeMaxRx);
+  drawSeries(hWgRx, true, false, chart.currWgRx, safeMaxRx);
+  drawSeries(hEnpTx, false, true, chart.currEnpTx, safeMaxTx);
+  drawSeries(hWgTx, false, false, chart.currWgTx, safeMaxTx);
+
+  ctx.restore();
+}
+
+// FPS
+let isFPSInit = false;
+let frames = 0;
+let lastSampleTime = performance.now();
+let fpsRafId = null;
+let smoothedFps = 60;
+
+function checkFPS(now = performance.now()) {
+ if (!shouldRun()) {
+   if (fpsRafId) {
+     cancelAnimationFrame(fpsRafId);
+     fpsRafId = null;
+   }
+   return;
+ }
+
+ frames++;
+
+ if (now >= lastSampleTime + 1000) {
+   const delta = now - lastSampleTime;
+
+   if (delta < 2000) {
+     const rawFps = Math.round((frames * 1000) / delta);
+     smoothedFps = Math.round(smoothedFps * 0.7 + rawFps * 0.3);
+     charts.fps.text.innerText = `${smoothedFps} FPS`;
+     pushChartMetric("fps", smoothedFps);
+
+     if (!isFPSInit) {
+       load(`[ OK ] FPS initialized: ${smoothedFps}`);
+       isFPSInit = true;
+     }
+   }
+
+   frames = 0;
+   lastSampleTime = now;
+ }
+
+ const showAdminGraphs = typeof admin !== "undefined" && admin && typeof isAdminGraphMode !== "undefined" && isAdminGraphMode;
+
+ if (showAdminGraphs) {
+   renderChart("cpu", now);
+   renderChart("hostMem", now);
+   renderAdminCombinedSpeedChart(now);
+ } else {
+   renderChart("fps", now);
+   renderChart("memory", now);
+   renderCombinedSpeedChart(now);
+ }
+
+ fpsRafId = requestAnimationFrame(checkFPS);
+}
+
+function resumeFPS() {
+ if (!start || !isActive) return;
+ if (fpsRafId) return;
+ frames = 0;
+ const now = performance.now();
+ lastSampleTime = now;
+ fpsRafId = requestAnimationFrame(checkFPS);
+}
+
+const origOpenSide = openSide;
+openSide = function() {
+ origOpenSide();
+ resumeFPS();
+};
+
+// Memory
+let isMemoryInit = false;
+let memIntervalTimer = null;
+
+const activePrograms = new Map([
+ ["TERMINAL Core", {
+   bytes: 4.2 * 1024 * 1024,
+   type: "SYS",
+   hits: 1,
+   updated: Date.now()
+ }]
+]);
+
+function registerProgramRun(name, initialBytes, type = "APP") {
+ const current = activePrograms.get(name) || {
+   bytes: 0,
+   hits: 0
+ };
+ activePrograms.set(name, {
+   bytes: Math.max(current.bytes, Number(initialBytes) || 0),
+   type: type,
+   hits: current.hits + 1,
+   updated: Date.now()
+ });
+ checkMemory();
+}
+
+function estimateStringBytes(str) {
+ if (!str) return 0;
+ return typeof str === "string" ? str.length : 0;
+}
+
+function formatBytes(bytes) {
+ if (bytes === 0) return "0 B";
+ if (!bytes || isNaN(bytes) || bytes < 0) return "0 KB";
+ const b = Number(bytes);
+ if (b < 1024) return Math.round(b) + " B";
+ const kb = b / 1024;
+ if (kb < 1024) return kb.toFixed(1) + " KB";
+ const mb = kb / 1024;
+ if (mb < 1024) return mb.toFixed(1) + " MB";
+ return (mb / 1024).toFixed(2) + " GB";
+}
+
+async function checkMemory() {
+ if (!shouldRun()) return;
+
+ if (!memIntervalTimer) {
+   memIntervalTimer = setInterval(() => {
+     if (shouldRun()) checkMemory();
+   }, 2500);
+ }
+
+ let jsHeap = 0;
+ let heapLimit = 0;
+
+ if (typeof performance !== "undefined" && performance.memory) {
+   jsHeap = performance.memory.usedJSHeapSize || 0;
+   heapLimit = performance.memory.jsHeapSizeLimit || 0;
+ } else {
+   const domCount = document.getElementsByTagName("*").length;
+   jsHeap = 16 * 1024 * 1024 + (domCount * 1800);
+   heapLimit = (navigator.deviceMemory ? navigator.deviceMemory * 1024 * 1024 * 1024 : 4096 * 1024 * 1024) * 0.5;
+ }
+
+ let storageUsage = 0;
+ if (navigator.storage && navigator.storage.estimate) {
+   try {
+     const est = await navigator.storage.estimate();
+     storageUsage = est.usage || 0;
+   } catch (e) {}
+ }
+
+ let lsBytes = 0;
+ try {
+   for (let k in localStorage) {
+     if (Object.prototype.hasOwnProperty.call(localStorage, k)) {
+       lsBytes += estimateStringBytes(localStorage[k]);
+     }
+   }
+ } catch (e) {}
+
+ const cookieBytes = estimateStringBytes(document.cookie);
+
+ const sysProg = activePrograms.get("TERMINAL Core");
+ if (sysProg) {
+   sysProg.bytes = (jsHeap > 0 ? (jsHeap * 0.35) : 4.5 * 1024 * 1024) + lsBytes + cookieBytes;
+ }
+
+ if (typeof assetCache !== "undefined" && assetCache.size > 0) {
+   let proxyBytes = 0;
+   assetCache.forEach(v => {
+     proxyBytes += typeof v === "string" ? v.length : 256 * 1024;
+   });
+   const currentProxy = activePrograms.get("Proxy Cache");
+   activePrograms.set("Proxy Cache", {
+     bytes: proxyBytes,
+     type: "NET",
+     hits: (currentProxy ? currentProxy.hits : 0) + 1,
+     updated: Date.now()
+   });
+ }
+
+ let totalProgBytes = 0;
+ activePrograms.forEach(p => {
+   totalProgBytes += p.bytes;
+ });
+
+ const totalSystemMem = Math.max(jsHeap + storageUsage, totalProgBytes, 4.5 * 1024 * 1024);
+ const totalMB = totalSystemMem / (1024 * 1024);
+
+ pushChartMetric("memory", totalMB);
+
+ const memTextEl = document.getElementById("memText");
+ if (memTextEl) memTextEl.innerText = `${totalMB.toFixed(1)} MB`;
+
+ const heapEl = document.getElementById("memHeap");
+ const maxEl = document.getElementById("memMax");
+ const storageEl = document.getElementById("memStorage");
+
+ if (heapEl) heapEl.textContent = `${(jsHeap / (1024 * 1024)).toFixed(1)} MB`;
+ if (maxEl) maxEl.textContent = formatBytes(heapLimit);
+ if (storageEl) storageEl.textContent = `${((storageUsage + lsBytes + cookieBytes) / 1024).toFixed(0)} KB`;
+
+ const topProcContainer = document.getElementById("topProcesses");
+ if (topProcContainer) {
+   const sorted = Array.from(activePrograms.entries())
+     .sort((a, b) => b[1].bytes - a[1].bytes)
+     .slice(0, 5);
+
+   topProcContainer.innerHTML = sorted.map(([name, data]) => {
+     const sizeStr = formatBytes(data.bytes);
+     const pct = totalSystemMem > 0 ? Math.min(100, Math.round((data.bytes / totalSystemMem) * 100)) : 0;
+     return `
+       <span>${data.type}</span>
+       <b>${name}</b>
+       <span>${sizeStr} (${pct}%)</span><br>`;
+   }).join("");
+ }
+
+ if (!isMemoryInit) {
+   load(`[ OK ] Memory fetched: ${totalMB.toFixed(1)} MB OUT OF ${formatBytes(heapLimit)}`);
+   isMemoryInit = true;
+ }
+}
+
+// Network speed
+let isSpeedInit = false;
+let networkLoopTimer = null;
+let lastKnownDownMbps = 10;
+let lastKnownUpMbps = 5;
+
+let isSpeedTesting = false;
+let speedTestEndTimestamp = 0;
+let speedTestTimer = null;
+
+const SPEED_CONFIG = {
+ pingUrl: "https://speed.cloudflare.com/__down?bytes=0",
+ downUrl: "https://speed.cloudflare.com/__down?bytes=",
+ upUrl: "https://speed.cloudflare.com/__up"
+};
+
+async function executeSinglePing() {
+ const t0 = performance.now();
+ try {
+   const ctrl = new AbortController();
+   const timeout = setTimeout(() => ctrl.abort(), 1500);
+
+   await fetch(`${SPEED_CONFIG.pingUrl}&_=${Math.random()}`, {
+     cache: "no-store",
+     mode: "cors",
+     signal: ctrl.signal
+   });
+
+   clearTimeout(timeout);
+   return Math.max(1, performance.now() - t0);
+ } catch (e) {
+   return null;
+ }
+}
+
+async function measurePassivePing() {
+ try {
+   const [p1, p2] = await Promise.all([executeSinglePing(), executeSinglePing()]);
+   const validPings = [p1, p2].filter(p => typeof p === "number" && p > 0);
+
+   if (validPings.length === 0) {
+     return { minPing: 20, avgLatency: 20, jitter: 1 };
+   }
+
+   const minPing = Math.min(...validPings);
+   const avgLatency = validPings.reduce((sum, v) => sum + v, 0) / validPings.length;
+   const jitter = validPings.length > 1 ? Math.abs(validPings[0] - validPings[1]) : 1;
+   return { minPing, avgLatency, jitter };
+ } catch (err) {
+   return { minPing: 20, avgLatency: 20, jitter: 1 };
+ }
+}
+
+async function samplePassiveNetworkMetrics() {
+ try {
+   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+   let downEst = conn && conn.downlink ? conn.downlink : lastKnownDownMbps;
+   let upEst = downEst * 0.35;
+
+   const { minPing, avgLatency, jitter } = await measurePassivePing();
+
+   lastKnownDownMbps = downEst;
+   lastKnownUpMbps = upEst;
+
+   pushChartMetric("speedDown", downEst);
+   pushChartMetric("speedUp", upEst);
+
+   const speedText = document.getElementById("speedText");
+   const pingEl = document.getElementById("pingVal");
+   const jitterEl = document.getElementById("jitterVal");
+   const latencyEl = document.getElementById("latencyVal");
+
+   if (speedText) {
+     speedText.innerText = `${downEst.toFixed(1)} MB OUT, ${upEst.toFixed(1)} MB IN (EST)`;
+   }
+   if (pingEl) pingEl.textContent = Math.round(minPing).toString();
+   if (jitterEl) jitterEl.textContent = jitter.toFixed(1);
+   if (latencyEl) latencyEl.textContent = Math.round(avgLatency).toString();
+
+   if (!isSpeedInit) {
+     load(`[ OK ] Network fetched: ${downEst.toFixed(1)} MB DOWN / ${upEst.toFixed(1)} MB UP`);
+     isSpeedInit = true;
+   }
+ } catch (err) {
+
+ }
+}
+
+async function measureDownloadStream() {
+ const targetBytes = Math.min(2000000, Math.max(300000, Math.round((lastKnownDownMbps * 1e6 * 0.3) / 8)));
+ const t0 = performance.now();
+ const res = await fetch(`${SPEED_CONFIG.downUrl}${targetBytes}&_=${Math.random()}`, {
+   cache: "no-store",
+   mode: "cors"
+ });
+ if (!res.ok) throw new Error("Network stream unavailable");
+
+ const buf = await res.arrayBuffer();
+ const durationSec = Math.max(0.01, (performance.now() - t0) / 1000);
+ const mbps = (buf.byteLength * 8) / (durationSec * 1e6);
+ lastKnownDownMbps = mbps;
+ return mbps;
+}
+
+async function measureUploadThroughput(baseRtt) {
+ const uploadBytes = Math.min(800000, Math.max(150000, Math.round((lastKnownUpMbps * 1e6 * 0.25) / 8)));
+ const payload = new Uint8Array(uploadBytes);
+ const tStart = performance.now();
+ await fetch(SPEED_CONFIG.upUrl, {
+   method: "POST",
+   body: payload,
+   cache: "no-store",
+   mode: "cors"
+ });
+ const totalElapsedSec = (performance.now() - tStart) / 1000;
+ const transferSec = Math.max(0.01, totalElapsedSec - ((baseRtt || 20) / 1000));
+ const mbps = (uploadBytes * 8) / (transferSec * 1e6);
+ lastKnownUpMbps = mbps;
+ return mbps;
+}
+
+async function sampleActiveNetworkMetrics() {
+ try {
+   const { minPing, avgLatency, jitter } = await measurePassivePing();
+   const downMbps = await measureDownloadStream();
+   const upMbps = await measureUploadThroughput(minPing);
+
+   pushChartMetric("speedDown", downMbps);
+   pushChartMetric("speedUp", upMbps);
+
+   const speedText = document.getElementById("speedText");
+   const pingEl = document.getElementById("pingVal");
+   const jitterEl = document.getElementById("jitterVal");
+   const latencyEl = document.getElementById("latencyVal");
+
+   if (speedText) {
+     speedText.innerText = `${downMbps.toFixed(1)} MB OUT, ${upMbps.toFixed(1)} MB IN`;
+   }
+   if (pingEl) pingEl.textContent = Math.round(minPing).toString();
+   if (jitterEl) jitterEl.textContent = jitter.toFixed(1);
+   if (latencyEl) latencyEl.textContent = Math.round(avgLatency).toString();
+ } catch (err) {
+   await samplePassiveNetworkMetrics();
+ }
+}
+
+function triggerSpeedTest() {
+ if (isSpeedTesting) return;
+ isSpeedTesting = true;
+ speedTestEndTimestamp = Date.now() + 30000;
+
+ const btn = document.getElementById("speedTestBtn");
+ if (btn) btn.disabled = true;
+
+ if (speedTestTimer) clearInterval(speedTestTimer);
+ speedTestTimer = setInterval(() => {
+   const remaining = Math.max(0, Math.ceil((speedTestEndTimestamp - Date.now()) / 1000));
+   if (btn) btn.textContent = `TEST (${remaining}s)`;
+   if (remaining <= 0) {
+     clearInterval(speedTestTimer);
+     isSpeedTesting = false;
+     if (btn) {
+       btn.disabled = false;
+       btn.textContent = "TEST (30s)";
+     }
+   }
+ }, 1000);
+
+ sampleActiveNetworkMetrics();
+}
+
+function startContinuousNetworkLoop() {
+ if (networkLoopTimer) clearTimeout(networkLoopTimer);
+
+ const loop = async () => {
+   try {
+     if (shouldRun()) {
+       if (isSpeedTesting && Date.now() < speedTestEndTimestamp) {
+         await sampleActiveNetworkMetrics();
+       } else {
+         await samplePassiveNetworkMetrics();
+       }
+     }
+   } catch (e) {}
+   const delay = isSpeedTesting ? 2500 : 7000;
+   networkLoopTimer = setTimeout(loop, delay);
+ };
+
+ loop();
+}
+
+async function checkSpeed() {
+ startContinuousNetworkLoop();
+}
+
+// Battery
+const batteryDiv = document.getElementById("battery");
+
+function checkBattery() {
+ if (!shouldRun()) {
+   batteryDiv.textContent = "Calculating...";
+   return;
+ }
+
+ try {
+   navigator.getBattery().then(function(battery) {
+     function updateAllStatus() {
+       const level = `${Math.round(battery.level * 100)}%`;
+       const isCharging = battery.charging ? "🗲" : "";
+
+       function formatTime(seconds) {
+         if (seconds === Infinity || isNaN(seconds)) return "Calculating...";
+
+         const hours = Math.floor(seconds / 3600);
+         const mins = Math.floor((seconds % 3600) / 60);
+         const displayMins = mins < 10 ? `0${mins}` : mins;
+         return `${hours}:${displayMins}`;
+       }
+
+       let timeInfo = "";
+       const time = battery.charging ? battery.chargingTime : battery.dischargingTime;
+       const formatted = formatTime(time);
+
+       if (formatted === "Calculating...") {
+         timeInfo = `${formatted}`;
+       } else if (battery.charging) {
+         timeInfo = `${formatted} until full`;
+       } else {
+         timeInfo = `${formatted} left`;
+       }
+       batteryDiv.textContent = `${level} - ${timeInfo}`;
+       document.getElementById("batteryTitle").textContent = `BATTERY ${isCharging}`;
+     }
+     updateAllStatus();
+
+     const events = ["levelchange", "chargingchange", "chargingtimechange", "dischargingtimechange"];
+     events.forEach(event => battery.addEventListener(event, updateAllStatus));
+     load(`[ OK ] Battery fetched: ${Math.round(battery.level * 100)}%`);
+   });
+ } catch (e) {
+   load("[ FAIL ] Battery " + e);
+   batteryDiv.textContent = "ERROR";
+ }
+}
+
+// Internet
+const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+function checkConnection() {
+ if (!shouldRun()) {
+   document.getElementById("status").textContent = "Calculating...";
+   return;
+ }
+
+try {
+   if (connection.effectiveType = "slow-2g") {
+     document.getElementById("status").textContent = "2G ⚠";
+   } else if (connection.effectiveType = "2g") {
+     document.getElementById("status").textContent = "2G";
+   } else if (connection.effectiveType = "3g") {
+     document.getElementById("status").textContent = "3G";
+   } else if (connection.effectiveType = "4g") {
+     document.getElementById("status").textContent = "4G";
+   }
+
+   load(`[ OK ] Network fetched: ${connection.effectiveType}`);
+ } catch (e) {
+   load("[ FAIL ] Network status " + e);
+   document.getElementById("status").textContent = "ERROR";
+ }
+}
+
+// IP
+let userData = null;
+let isGlobeInit = false;
+let root, chart, rotationAnimation;
+let polygonTemplate, graticuleTemplate, circleTemplate;
+
+async function fetchIPData() {
+ if (userData) return userData;
+
+ try {
+   const response = await fetch("https://ipapi.co/json/");
+
+   if (!response.ok) throw new Error("Network response was not ok");
+
+   const data = await response.json();
+   userData = {
+     ip: data.ip,
+     lat: data.latitude,
+     lon: data.longitude
+   };
+
+   document.getElementById("ip").textContent = userData.ip;
+   document.getElementById("coords").textContent = `${userData.lat}, ${userData.lon}`;
+   if (typeof load === "function") load(`[ OK ] IP fetched: ${userData.ip}`);
+
+   return userData;
+ } catch (e) {
+   document.getElementById("ip").textContent = "ERROR";
+   document.getElementById("coords").textContent = "ERROR";
+   if (typeof load === "function") load("[ FAIL ] IP fetch error: " + e.message);
+   userData = {
+     ip: 0,
+     lat: 0,
+     lon: 0
+   };
+
+   return null;
+ }
+}
+
+// World view
+async function initMap() {
+ if (root) return;
+
+ const data = await fetchIPData();
+ if (!data) return;
+
+ root = am5.Root.new("chartdiv");
+ root._logo.dispose();
+ root.setThemes([am5themes_Animated.new(root)]);
+
+ chart = root.container.children.push(am5map.MapChart.new(root, {
+   panX: "rotateX",
+   panY: "rotateY",
+   projection: am5map.geoOrthographic(),
+   rotationX: -data.lon,
+   rotationY: -data.lat,
+   maxZoomLevel: 1
+ }));
+
+ let graticuleSeries = chart.series.unshift(am5map.GraticuleSeries.new(root, {
+   step: 10
+ }));
+ graticuleTemplate = graticuleSeries.mapLines.template;
+
+ let polygonSeries = chart.series.push(am5map.MapPolygonSeries.new(root, {
+   geoJSON: am5geodata_worldLow
+ }));
+ polygonTemplate = polygonSeries.mapPolygons.template;
+
+ let pointSeries = chart.series.push(am5map.MapPointSeries.new(root, {}));
+ pointSeries.bullets.push(() => {
+   const circle = am5.Circle.new(root, {
+     radius: 5
+   });
+   circleTemplate = circle;
+   return am5.Bullet.new(root, {
+     sprite: circle
+   });
+ });
+
+ pointSeries.data.setAll([{
+   geometry: {
+     type: "Point",
+     coordinates: [data.lon, data.lat]
+   }
+ }]);
+
+ refreshColors();
+
+ const toggleSpin = () => {
+   if (rotationAnimation) {
+     rotationAnimation.stop();
+     rotationAnimation = null;
+   } else {
+     rotationAnimation = chart.animate({
+       key: "rotationX",
+       from: chart.get("rotationX"),
+       to: chart.get("rotationX") + 360,
+       duration: 30000,
+       loops: Infinity
+     });
+   }
+ };
+
+ const goHome = () => {
+   if (rotationAnimation) toggleSpin();
+   chart.animate({
+     key: "rotationX",
+     to: -data.lon,
+     duration: 1000,
+     easing: am5.ease.out(am5.ease.cubic)
+   });
+   chart.animate({
+     key: "rotationY",
+     to: -data.lat,
+     duration: 1000,
+     easing: am5.ease.out(am5.ease.cubic)
+   });
+ };
+
+ document.getElementById("spinBtn").onclick = toggleSpin;
+ document.getElementById("homeBtn").onclick = goHome;
+
+ chart.appear();
+
+ if (!isGlobeInit) {
+   if (typeof load === "function") load("[ OK ] World Map fetched");
+   isGlobeInit = true;
+ }
+}
+
+function refreshColors() {
+ if (!root) return;
+ const style = getComputedStyle(document.documentElement);
+ const themeColor = am5.color(style.getPropertyValue("--theme").trim() || "#00FF00");
+
+ if (graticuleTemplate) graticuleTemplate.setAll({
+   stroke: themeColor,
+   strokeOpacity: 0.25
+ });
+ if (polygonTemplate) polygonTemplate.setAll({
+   stroke: themeColor,
+   strokeWidth: 1,
+   fillOpacity: 0
+ });
+ if (circleTemplate) circleTemplate.set("fill", themeColor);
+}
+
+setInterval(() => {
+ refreshColors();
+}, 1000);
+
+// Glitch effect
+const container = document.querySelectorAll(".container");
+const body = document.querySelectorAll("*");
+const filter = document.getElementById("displacement");
+const noise = document.querySelector("feTurbulence");
+const glowline = document.getElementById("glowline");
+const scanline = document.getElementById("scanline");
+
+let isCrtEnabled = true;
+
+function triggerGlitch() {
+ if (!isCrtEnabled || !shouldRun()) {
+   filter.setAttribute("scale", 0);
+   return;
+ }
+
+ noise.setAttribute("seed", Math.random() * 100);
+ filter.setAttribute("scale", Math.random() * 4);
+
+ const duration = 80;
+ setTimeout(() => {
+   filter.setAttribute("scale", 0);
+   if (isCrtEnabled && shouldRun()) {
+     setTimeout(triggerGlitch, Math.random() * 4000 + 2000);
+   }
+ }, duration);
+}
+
+let userCrtSetting = getCookie("crtEnabled");
+if (userCrtSetting === null || userCrtSetting === undefined) {
+ userCrtSetting = true;
+}
+
+function applyCrt(enable) {
+ isCrtEnabled = enable;
+
+ const containers = document.querySelectorAll(".container");
+ containers.forEach(el => {
+   el.style.filter = enable ? "url(#chromatic-aberration) url(#glitch)" : "none";
+ });
+
+ if (enable) {
+   triggerGlitch();
+   if (glowline) glowline.style.display = "block";
+   if (scanline) scanline.style.display = "block";
+   document.body.classList.add("flicker");
+ } else {
+   if (filter) filter.setAttribute("scale", 0);
+   if (glowline) glowline.style.display = "none";
+   if (scanline) scanline.style.display = "none";
+   document.body.classList.remove("flicker");
+ }
+}
+
+function toggleCrt() {
+ userCrtSetting = !userCrtSetting;
+ setCookie("crtEnabled", userCrtSetting, 30);
+ applyCrt(userCrtSetting);
+}
+
+function triggerGlitch() {
+ if (!isCrtEnabled || !shouldRun()) {
+   if (filter) filter.setAttribute("scale", 0);
+   return;
+ }
+
+ noise.setAttribute("seed", Math.random() * 100);
+ filter.setAttribute("scale", Math.random() * 4);
+
+ const duration = 80;
+ setTimeout(() => {
+   if (filter) filter.setAttribute("scale", 0);
+   if (isCrtEnabled && shouldRun()) {
+     setTimeout(triggerGlitch, Math.random() * 4000 + 2000);
+   }
+ }, duration);
+}
+
+applyCrt(userCrtSetting);
