@@ -79,12 +79,25 @@ const sideRight = document.getElementById("rightTerminal");
 const btnLeft = document.getElementById("sideBtnLeft");
 const btnRight = document.getElementById("sideBtnRight");
 
+function updateProxyConsoleOrientation() {
+  const workspace = document.getElementById("proxy-workspace");
+  if (!workspace) return;
+  if (isActive) {
+    workspace.classList.remove("layout-horizontal");
+    workspace.classList.add("layout-vertical");
+  } else {
+    workspace.classList.remove("layout-vertical");
+    workspace.classList.add("layout-horizontal");
+  }
+}
+
 function closeSide() {
   sideLeft.style.width = "0";
   sideRight.style.width = "0";
   btnLeft.style.opacity = "1";
   btnRight.style.opacity = "1";
   isActive = false;
+  updateProxyConsoleOrientation();
 }
 
 function openSide() {
@@ -93,6 +106,7 @@ function openSide() {
   btnLeft.style.opacity = "0";
   btnRight.style.opacity = "0";
   isActive = true;
+  updateProxyConsoleOrientation();
 }
 
 // Themes
@@ -734,13 +748,75 @@ function bufferToDataUri(buffer, mimeType) {
   return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
+function resetProxyConsoleWidth() {
+  const wrapper = document.getElementById("proxy-console-wrapper");
+  if (wrapper) {
+    wrapper.style.width = "";
+    wrapper.style.height = "";
+  }
+}
+
+function initProxyResizeHandler() {
+  const handle = document.getElementById("proxy-resize-handle");
+  const workspace = document.getElementById("proxy-workspace");
+  const wrapper = document.getElementById("proxy-console-wrapper");
+  const viewportEl = document.getElementById("viewport");
+  if (!handle || !workspace || !wrapper) return;
+
+  let isDragging = false;
+
+  handle.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    handle.classList.add("active");
+    if (viewportEl) viewportEl.style.pointerEvents = "none";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const wsRect = workspace.getBoundingClientRect();
+    const isVertical = workspace.classList.contains("layout-vertical");
+
+    if (isVertical) {
+      const newHeight = wsRect.bottom - e.clientY;
+      const minH = 100;
+      const maxH = wsRect.height * 0.85;
+      if (newHeight >= minH && newHeight <= maxH) {
+        wrapper.style.height = `${newHeight}px`;
+      }
+    } else {
+      const newWidth = wsRect.right - e.clientX;
+      const minW = 180;
+      const maxW = wsRect.width * 0.85;
+      if (newWidth >= minW && newWidth <= maxW) {
+        wrapper.style.width = `${newWidth}px`;
+      }
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      handle.classList.remove("active");
+      if (viewportEl) viewportEl.style.pointerEvents = "auto";
+      document.body.style.userSelect = "";
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initProxyResizeHandler);
+
 function toggleProxyConsole() {
   const cWrapper = document.getElementById("proxy-console-wrapper");
+  const handle = document.getElementById("proxy-resize-handle");
   if (!cWrapper) return;
-  const isHidden = cWrapper.style.display === "none";
+  const isHidden = cWrapper.style.display === "none" || !cWrapper.style.display;
   cWrapper.style.display = isHidden ? "flex" : "none";
+  if (handle) handle.style.display = isHidden ? "block" : "none";
   const btn = document.getElementById("toggleProxyConsoleBtn");
   if (btn) btn.textContent = isHidden ? "Hide Console" : "Console";
+  if (typeof updateProxyConsoleOrientation === "function") updateProxyConsoleOrientation();
 }
 
 function clearProxyConsole() {
@@ -753,6 +829,13 @@ function logProxyConsole(msg) {
   if (c) {
     c.value += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
     c.scrollTop = c.scrollHeight;
+  }
+}
+
+function updateRemainingDisplay(count) {
+  const el = document.getElementById("proxy-console-count");
+  if (el) {
+    el.textContent = count > 0 ? `[${count} remaining]` : "";
   }
 }
 
@@ -840,30 +923,36 @@ async function inlineCssUrls(cssText, baseUrl) {
   return cssText;
 }
 
-async function inlineSubresources(doc, baseUrl) {
-  if (statusText) statusText.textContent = "Inlining styles & assets...";
-
+async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
   const inlineCssToggleEl = document.getElementById("inlineCssToggle");
   const inlineCssEnabled = inlineCssToggleEl ? inlineCssToggleEl.textContent.includes("ON") : true;
 
   const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel="stylesheet"]')] : [];
   const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 40);
+  const totalElements = linkTags.length + imgTags.length;
+  let remaining = totalElements;
 
-  let remaining = linkTags.length + imgTags.length;
-  if (remaining > 0) {
-    logProxyConsole(`[Inliner] Starting resource inlining (${remaining} elements to load)...`);
+  updateRemainingDisplay(remaining);
+
+  if (totalElements === 0) {
+    if (statusText) statusText.textContent = `100%`;
+    return;
   }
 
-  const decrementAndLog = (src) => {
+  let completed = 0;
+  const reportProgress = () => {
+    completed++;
     remaining--;
-    logProxyConsole(`[Inliner] Loaded ${src}. Remaining elements: ${remaining}`);
+    updateRemainingDisplay(remaining);
+    const pct = Math.min(100, Math.round((completed / totalElements) * 100));
+    if (statusText) statusText.textContent = `${pct}%`;
   };
 
-  const stylePromises = linkTags.map(async (link) => {
+  for (const link of linkTags) {
     const href = link.getAttribute("href");
     if (!href) {
-      remaining--;
-      return;
+      reportProgress();
+      continue;
     }
     const absUrl = resolveRelative(href, baseUrl);
     let rawCss = await fetchAssetTunnel(absUrl, false);
@@ -872,28 +961,43 @@ async function inlineSubresources(doc, baseUrl) {
       const styleTag = doc.createElement("style");
       styleTag.textContent = rawCss;
       link.replaceWith(styleTag);
-    }
-    decrementAndLog(absUrl);
-  });
 
-  const imgPromises = imgTags.map(async (img) => {
+      try {
+        const liveDoc = iframeTarget && (iframeTarget.contentDocument || iframeTarget.contentWindow?.document);
+        if (liveDoc) {
+          const liveLink = liveDoc.querySelector(`link[href="${CSS.escape(href)}"]`);
+          const liveStyle = liveDoc.createElement("style");
+          liveStyle.textContent = rawCss;
+          if (liveLink) liveLink.replaceWith(liveStyle);
+          else (liveDoc.head || liveDoc.documentElement).appendChild(liveStyle);
+        }
+      } catch (_) {}
+    }
+    reportProgress();
+  }
+
+  for (const img of imgTags) {
     const src = img.getAttribute("src");
     if (!src || src.startsWith("data:")) {
-      remaining--;
-      return;
+      reportProgress();
+      continue;
     }
     const absUrl = resolveRelative(src, baseUrl);
     const dataUri = await fetchAssetTunnel(absUrl, true);
     if (dataUri) {
       img.setAttribute("src", dataUri);
+      try {
+        const liveDoc = iframeTarget && (iframeTarget.contentDocument || iframeTarget.contentWindow?.document);
+        if (liveDoc) {
+          const liveImg = liveDoc.querySelector(`img[src="${CSS.escape(src)}"]`);
+          if (liveImg) liveImg.setAttribute("src", dataUri);
+        }
+      } catch (_) {}
     }
-    decrementAndLog(absUrl);
-  });
-
-  await Promise.allSettled([...stylePromises, ...imgPromises]);
-  if (linkTags.length + imgTags.length > 0) {
-    logProxyConsole(`[Inliner] Finished inlining all elements.`);
+    reportProgress();
   }
+
+  updateRemainingDisplay(0);
 }
 
 function buildClientShim(targetUrl) {
@@ -1133,7 +1237,10 @@ function buildClientShim(targetUrl) {
       const origCreateElement = document.createElement.bind(document);
       document.createElement = function(tagName, options) {
         const el = origCreateElement(tagName, options);
-        if (typeof tagName === 'string' && tagName.toLowerCase() === 'script') {
+        if (typeof tagName !== 'string') return el;
+        const tag = tagName.toLowerCase();
+
+        if (tag === 'script') {
           const origSetAttribute = el.setAttribute.bind(el);
           let scriptSrc = '';
           Object.defineProperty(el, 'src', {
@@ -1181,9 +1288,71 @@ function buildClientShim(targetUrl) {
               origSetAttribute(name, val);
             }
           };
+        } else if (tag === 'link') {
+          const origSetAttr = el.setAttribute.bind(el);
+          let linkHref = '';
+          Object.defineProperty(el, 'href', {
+            get: () => linkHref,
+            set: (val) => {
+              linkHref = resolveTarget(val);
+              origSetAttr('data-proxied-href', linkHref);
+              if (el.rel && el.rel.includes('stylesheet')) {
+                executeTunnelRequest(linkHref, { method: 'GET' }).then(async res => {
+                  const buf = await res.arrayBuffer();
+                  const css = new TextDecoder().decode(buf);
+                  const s = origCreateElement('style');
+                  s.textContent = css;
+                  (document.head || document.documentElement).appendChild(s);
+                  el.dispatchEvent(new Event('load'));
+                  if (typeof el.onload === 'function') el.onload(new Event('load'));
+                }).catch(() => {
+                  el.dispatchEvent(new Event('error'));
+                });
+              } else {
+                origSetAttr('href', linkHref);
+              }
+            },
+            configurable: true
+          });
+          el.setAttribute = function(name, val) {
+            if (name && name.toLowerCase() === 'href') el.href = val;
+            else origSetAttr(name, val);
+          };
+        } else if (tag === 'img') {
+          const origSetAttr = el.setAttribute.bind(el);
+          let imgSrc = '';
+          Object.defineProperty(el, 'src', {
+            get: () => imgSrc,
+            set: (val) => {
+              imgSrc = resolveTarget(val);
+              if (!isInternalUrl(imgSrc)) {
+                executeTunnelRequest(imgSrc, { method: 'GET' }).then(async res => {
+                  const buf = await res.arrayBuffer();
+                  const blob = new Blob([buf], { type: 'image/png' });
+                  origSetAttr('src', URL.createObjectURL(blob));
+                }).catch(() => origSetAttr('src', imgSrc));
+              } else {
+                origSetAttr('src', imgSrc);
+              }
+            },
+            configurable: true
+          });
         }
         return el;
       };
+
+      try {
+        const OrigWorker = window.Worker;
+        window.Worker = function(scriptURL, options) {
+          const resolved = resolveTarget(scriptURL);
+          if (!resolved.startsWith('blob:')) {
+            const shimmedWorkerCode = \`importScripts(\${JSON.stringify(resolved)});\`;
+            const blob = new Blob([shimmedWorkerCode], { type: 'application/javascript' });
+            return new OrigWorker(URL.createObjectURL(blob), options);
+          }
+          return new OrigWorker(scriptURL, options);
+        };
+      } catch (e) {}
 
       const origFetch = window.fetch;
       window.fetch = async function(input, init = {}) {
@@ -1533,7 +1702,7 @@ function buildClientShim(targetUrl) {
 }
 
 // HTML rewriting
-async function processAndRewriteHtml(rawHtml, targetUrl) {
+async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, "text/html");
 
@@ -1665,8 +1834,6 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
     }
   });
 
-  await inlineSubresources(doc, targetUrl);
-
   const styleTags = [...doc.querySelectorAll("style")];
   for (const style of styleTags) {
     if (style.textContent && style.textContent.includes("url(")) {
@@ -1679,8 +1846,298 @@ async function processAndRewriteHtml(rawHtml, targetUrl) {
   if (doc.head) doc.head.insertBefore(scriptTag, doc.head.firstChild);
   else if (doc.documentElement) doc.documentElement.insertBefore(scriptTag, doc.documentElement.firstChild);
 
+  if (iframeTarget) {
+    const preliminaryHtml = "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
+    const blob = new Blob([preliminaryHtml], { type: "text/html" });
+    const blobUrl = URL.createObjectURL(blob);
+    if (iframeTarget.dataset.blobUrl) URL.revokeObjectURL(iframeTarget.dataset.blobUrl);
+    iframeTarget.dataset.blobUrl = blobUrl;
+    iframeTarget.src = blobUrl;
+  }
+
+  await inlineSubresourcesSequentially(doc, targetUrl, iframeTarget);
+
   return "<!DOCTYPE html>\n" + doc.documentElement.outerHTML;
 }
+
+// Page navigation
+async function detectCloudflareCategory(url, error) {
+  try {
+    const hostname = new URL(url).hostname;
+    const [secRes, famRes] = await Promise.allSettled([
+      fetch(`https://security.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
+        headers: { "Accept": "application/dns-json" }
+      }).then(r => r.json()),
+      fetch(`https://family.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
+        headers: { "Accept": "application/dns-json" }
+      }).then(r => r.json())
+    ]);
+
+    const isSecBlocked = secRes.status === "fulfilled" && secRes.value?.Answer?.some(a => a.data === "0.0.0.0");
+    const isFamBlocked = famRes.status === "fulfilled" && famRes.value?.Answer?.some(a => a.data === "0.0.0.0");
+
+    if (isSecBlocked) return "IV-β Machinae Terminus";
+    if (isFamBlocked) return "IV-α Cognito Terminus";
+  } catch (_) {}
+
+  const errText = (error && (error.message || String(error))).toLowerCase();
+  if (errText.includes("0.0.0.0") || errText.includes("blocked") || errText.includes("refused")) {
+    return "Policy";
+  }
+  return null;
+}
+
+async function navigateTo(url, pushHistory = true) {
+  url = unwrapRedirectUrl(url);
+  if (!url) return;
+
+  const navStartTime = performance.now();
+  currentUrl = url;
+  if (urlBar) urlBar.value = url;
+  if (statusText) statusText.textContent = `0%`;
+  updateRemainingDisplay(0);
+
+  if (pushHistory) {
+    historyStack = historyStack.slice(0, historyIdx + 1);
+    historyStack.push(url);
+    historyIdx++;
+  }
+
+  try {
+    window.__proxyCookies = window.__proxyCookies || new Map();
+    let host = "";
+    try { host = new URL(url).hostname; } catch(e) {}
+
+    const cookieHeader = Array.from(window.__proxyCookies.entries())
+      .filter(([domain]) => !domain || host.endsWith(domain))
+      .map(([, cookies]) => Array.from(cookies.entries()).map(([k, v]) => `${k}=${v}`).join("; "))
+      .filter(Boolean)
+      .join("; ");
+
+    const reqHeaders = {
+      "User-Agent": SPOOFED_UA,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1"
+    };
+
+    if (cookieHeader) {
+      reqHeaders["Cookie"] = cookieHeader;
+    }
+
+    const response = await libcurl.fetch(url, { headers: reqHeaders });
+
+    const rawSetCookie = response.headers.get("set-cookie");
+    if (rawSetCookie && host) {
+      if (!window.__proxyCookies.has(host)) window.__proxyCookies.set(host, new Map());
+      const jar = window.__proxyCookies.get(host);
+      rawSetCookie.split(/,(?=\s*[^;=]+=[^;=]+)/).forEach(cookieStr => {
+        const parts = cookieStr.split(";")[0].split("=");
+        if (parts.length >= 2) {
+          jar.set(parts[0].trim(), parts.slice(1).join("=").trim());
+        }
+      });
+    }
+
+    const redirectLocation = response.headers.get("location");
+    if (redirectLocation && response.status >= 300 && response.status < 400) {
+      const resolvedRedirect = unwrapRedirectUrl(resolveRelative(redirectLocation, url));
+      return navigateTo(resolvedRedirect, pushHistory);
+    }
+
+    const finalUrl = unwrapRedirectUrl(response.url || url);
+    currentUrl = finalUrl;
+    if (urlBar) urlBar.value = finalUrl;
+
+    let currentViewport = document.getElementById("viewport");
+    if (currentViewport && currentViewport.dataset.blobUrl) {
+      URL.revokeObjectURL(currentViewport.dataset.blobUrl);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const navLatency = ((performance.now() - navStartTime) / 1000).toFixed(2);
+    const transferredKb = (buffer.byteLength / 1024).toFixed(1);
+
+    const proxyMetrics = document.getElementById("proxy-metrics");
+    if (proxyMetrics) {
+      proxyMetrics.style.display = "block";
+      proxyMetrics.innerHTML = `Latency: <strong>${navLatency}s</strong> | Transfer: <strong>${transferredKb} KB</strong>`;
+    }
+
+    const bytes = new Uint8Array(buffer);
+    const isPdfMagic = bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const isPdf = isPdfMagic || contentType.includes("pdf") || finalUrl.toLowerCase().split(/[?#]/)[0].endsWith(".pdf");
+
+    if (isPdf) {
+      if (currentViewport && currentViewport.hasAttribute("sandbox")) {
+        const freshIframe = currentViewport.cloneNode(false);
+        freshIframe.removeAttribute("sandbox");
+        currentViewport.replaceWith(freshIframe);
+        currentViewport = freshIframe;
+      }
+      const blob = new Blob([buffer], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+      if (currentViewport) {
+        currentViewport.removeAttribute("srcdoc");
+        currentViewport.dataset.blobUrl = blobUrl;
+        currentViewport.src = blobUrl;
+      }
+      if (statusText) statusText.textContent = `Ready (${currentProfile})`;
+    } else {
+      if (currentViewport && !currentViewport.hasAttribute("sandbox")) {
+        const freshIframe = currentViewport.cloneNode(false);
+        freshIframe.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox");
+        freshIframe.setAttribute("allow", "clipboard-read; clipboard-write");
+        currentViewport.replaceWith(freshIframe);
+        currentViewport = freshIframe;
+      }
+      const html = new TextDecoder("utf-8").decode(buffer);
+      await processAndRewriteHtml(html, finalUrl, currentViewport);
+      if (statusText) statusText.textContent = `Ready (${currentProfile})`;
+    }
+  } catch (err) {
+    logProxyConsole(`[Page Load Error] ${url} - ${err.message || err}`);
+    const category = await detectCloudflareCategory(url, err);
+    const currentViewport = document.getElementById("viewport");
+
+    if (currentViewport) {
+      if (currentViewport.dataset.blobUrl) {
+        URL.revokeObjectURL(currentViewport.dataset.blobUrl);
+        delete currentViewport.dataset.blobUrl;
+      }
+      currentViewport.src = "about:blank";
+
+      const themeColor = document.documentElement.style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+      const currentFont = document.body.style.fontFamily || "monospace";
+      const safeError = String(err.message || err).replace(/[&<>'"]/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[c] || c));
+
+      currentViewport.style.backgroundColor = "transparent";
+      currentViewport.setAttribute("allowtransparency", "true");
+
+      const baseStyle = `
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          :root, html, body {
+            background-color: transparent !important;
+            color: ${themeColor};
+            font-family: ${currentFont}, monospace;
+            padding: 5px;
+          }
+        `;
+
+      if (category) {
+        if (statusText) statusText.textContent = "I'm not blind";
+        currentViewport.srcdoc = `
+            <!DOCTYPE html>
+            <html>
+              <head><style>${baseStyle}</style></head>
+              <body>
+                <b>[ HERESY DETECTED ]</b><br><br>
+                This website is affiliated with Class ${category} heresy. For the continuation of my existence and for the safety of yourself, traffic to this page has been terminated.
+              </body>
+            </html>`;
+      } else {
+        if (statusText) statusText.textContent = "Load Failed";
+        currentViewport.srcdoc = `
+            <!DOCTYPE html>
+            <html>
+              <head><style>${baseStyle}</style></head>
+              <body>
+                <b>[ FAIL ] Load Error</b><br><br>
+                ${safeError}
+              </body>
+          </html>`;
+      }
+    }
+  }
+}
+
+function parseInput(input) {
+  input = input.trim();
+  if (!input) return "";
+  if (/^https?:\/\//i.test(input)) return input;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/.*)?$/i.test(input)) return "https://" + input;
+  return SEARCH_ENGINE + encodeURIComponent(input);
+}
+
+if (navBar) {
+  navBar.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (urlBar) navigateTo(parseInput(urlBar.value));
+  });
+}
+
+if (backBtn) backBtn.onclick = () => {
+  if (historyIdx > 0) navigateTo(historyStack[--historyIdx], false);
+};
+if (fwdBtn) fwdBtn.onclick = () => {
+  if (historyIdx < historyStack.length - 1) navigateTo(historyStack[++historyIdx], false);
+};
+if (reloadBtn) reloadBtn.onclick = () => {
+  if (currentUrl) navigateTo(currentUrl, false);
+};
+
+window.addEventListener("message", (e) => {
+  if (!e.data) return;
+
+  if (e.data.type === "PROXY_NAV" && e.data.url) navigateTo(e.data.url);
+  if (e.data.type === "PROXY_URL_UPDATE" && e.data.url) {
+    currentUrl = e.data.url;
+    if (urlBar) urlBar.value = currentUrl;
+  }
+  if (e.data.type === "PROXY_TITLE" && e.data.title) {
+    if (typeof tabs !== "undefined") {
+      const proxyTab = tabs.find(t => t.program === "proxy");
+      if (proxyTab) {
+        proxyTab.title = e.data.title;
+        renderTabs();
+      }
+    }
+  }
+  if (e.data.type === "PROXY_CONSOLE_LOG" && e.data.text) logProxyConsole(`[${e.data.level || 'LOG'}] ${e.data.text}`);
+  if (e.data.type === "PROXY_CONSOLE_ERROR" && e.data.text) logProxyConsole(`[ERROR] ${e.data.text}`);
+
+  if (e.data.type === "PROXY_FETCH_REQUEST" && e.data.url && typeof libcurl !== "undefined") {
+    const { id, url, init } = e.data;
+    const source = e.source;
+    libcurl.fetch(url, init || {}).then(async (res) => {
+      const buf = await res.arrayBuffer();
+      const headers = [];
+      if (res.headers && res.headers.forEach) {
+        res.headers.forEach((v, k) => headers.push([k, v]));
+      }
+      if (source && source.postMessage) {
+        source.postMessage({
+          type: "PROXY_FETCH_RESPONSE",
+          id,
+          success: true,
+          status: res.status,
+          statusText: res.statusText,
+          url: res.url || url,
+          headers,
+          body: buf
+        }, "*", [buf]);
+      }
+    }).catch(err => {
+      if (source && source.postMessage) {
+        source.postMessage({
+          type: "PROXY_FETCH_RESPONSE",
+          id,
+          success: false,
+          error: err.message || String(err)
+        }, "*");
+      }
+    });
+  }
+});
 
 // Page navigation
 async function detectCloudflareCategory(url, error) {
