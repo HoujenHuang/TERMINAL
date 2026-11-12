@@ -3009,7 +3009,7 @@ function handleCommand(cmd) {
   let response = "";
   switch (cmd.toLowerCase()) {
     case "help":
-      response = "List of available commands: games, youtube, radio, proxy, editor, theme, about, help, clear";
+      response = "List of available commands: games, youtube, radio, proxy, editor, settings, about, help, clear";
       break;
     case "about":
       response = `The TERMINAL is a repository of free games, proxies, and unblocked tools. All resources have been checked for malware.<br><br>
@@ -3020,7 +3020,7 @@ function handleCommand(cmd) {
     case "radio": setProgramForActiveTab("radio", "radio"); return;
     case "proxy": setProgramForActiveTab("proxy", "proxy"); return;
     case "editor": setProgramForActiveTab("editor", "editor"); return;
-    case "theme": setProgramForActiveTab("themeSetting", "theme"); return;
+    case "settings": setProgramForActiveTab("themeSetting", "theme"); return;
     case "login":
       setProgramForActiveTab("login", "login");
       setTimeout(() => document.getElementById("email")?.focus(), 50);
