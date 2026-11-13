@@ -1915,26 +1915,6 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     }
   }
 
-  const revealStyle = doc.createElement("style");
-  revealStyle.id = "__proxy_universal_reveal";
-  revealStyle.textContent = `
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.001s !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001s !important;
-      }
-    }
-    [class*="Intro__"], [class*="Product__"], [class*="Primer_Brand__Text"], [class*="Primer_Brand__Heading"],
-    [class*="Primer_Brand__"], [data-animate], [data-aos], [data-inview], [data-reveal], [class*="reveal-"],
-    .fade-in:not(.flicker), [class*="stagger-"] {
-      opacity: 1 !important;
-      visibility: visible !important;
-    }
-  `;
-  if (doc.head) doc.head.appendChild(revealStyle);
-  else if (doc.documentElement) doc.documentElement.appendChild(revealStyle);
-
   const scriptTag = doc.createElement("script");
   scriptTag.textContent = buildClientShim(targetUrl);
   if (doc.head) doc.head.insertBefore(scriptTag, doc.head.firstChild);
