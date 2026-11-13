@@ -854,13 +854,14 @@ async function fetchAssetTunnel(url, asBinary = false) {
       .filter(Boolean)
       .join("; ");
 
+    const isScript = url.endsWith(".js") || url.includes(".js?");
     const headers = {
       "User-Agent": SPOOFED_UA,
-      "Accept": asBinary ? "*/*" : "text/css,*/*;q=0.1",
+      "Accept": asBinary ? "*/*" : (isScript ? "*/*" : "text/css,*/*;q=0.1"),
       "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
       "Sec-Ch-Ua-Mobile": "?0",
       "Sec-Ch-Ua-Platform": '"Windows"',
-      "Sec-Fetch-Dest": asBinary ? "image" : "style",
+      "Sec-Fetch-Dest": asBinary ? "image" : (isScript ? "script" : "style"),
       "Sec-Fetch-Mode": "no-cors",
       "Sec-Fetch-Site": "cross-site"
     };
@@ -1044,6 +1045,79 @@ function buildClientShim(targetUrl) {
           Object.defineProperty(window, 'sessionStorage', { value: storageShim, configurable: true });
         } catch (e2) {}
       }
+
+      try {
+        const origMatchMedia = window.matchMedia;
+        window.matchMedia = function(query) {
+          if (typeof query === "string" && query.includes("prefers-reduced-motion")) {
+            return {
+              matches: true,
+              media: query,
+              onchange: null,
+              addListener: () => {},
+              removeListener: () => {},
+              addEventListener: () => {},
+              removeEventListener: () => {},
+              dispatchEvent: () => false
+            };
+          }
+          return origMatchMedia ? origMatchMedia.apply(this, arguments) : { matches: false, media: query };
+        };
+      } catch (e) {}
+
+      try {
+        const OrigIntersectionObserver = window.IntersectionObserver;
+        if (OrigIntersectionObserver) {
+          window.IntersectionObserver = function(callback, options) {
+            const instance = new OrigIntersectionObserver(callback, options);
+            const origObserve = instance.observe.bind(instance);
+            instance.observe = function(target) {
+              origObserve(target);
+              if (target && target instanceof Element) {
+                setTimeout(() => {
+                  try {
+                    const rect = target.getBoundingClientRect();
+                    callback([{
+                      target: target,
+                      isIntersecting: true,
+                      intersectionRatio: 1.0,
+                      boundingClientRect: rect,
+                      intersectionRect: rect,
+                      rootBounds: options && options.root ? options.root.getBoundingClientRect() : {
+                        top: 0, left: 0, width: window.innerWidth, height: window.innerHeight, bottom: window.innerHeight, right: window.innerWidth
+                      },
+                      time: performance.now()
+                    }], instance);
+                  } catch (err) {}
+                }, 50);
+              }
+            };
+            return instance;
+          };
+          window.IntersectionObserver.prototype = OrigIntersectionObserver.prototype;
+        }
+      } catch (e) {}
+
+      function unfreezeScrollAnimations() {
+        const trapped = document.querySelectorAll('[class*="Intro__"], [class*="Product__"], [class*="Primer_Brand__"], [class*="reveal"], [class*="animate"], [data-animate], [data-inview], [data-aos]');
+        trapped.forEach(el => {
+          try {
+            const s = window.getComputedStyle(el);
+            if (s.opacity === "0") {
+              el.style.setProperty("opacity", "1", "important");
+            }
+          } catch (e) {}
+        });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", unfreezeScrollAnimations);
+      } else {
+        unfreezeScrollAnimations();
+      }
+      window.addEventListener("load", unfreezeScrollAnimations);
+      setTimeout(unfreezeScrollAnimations, 400);
+      setTimeout(unfreezeScrollAnimations, 1500);
 
       const _log = console.log, _warn = console.warn, _error = console.error, _info = console.info;
       function relayConsole(level, args) {
@@ -1841,6 +1915,26 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     }
   }
 
+  const revealStyle = doc.createElement("style");
+  revealStyle.id = "__proxy_universal_reveal";
+  revealStyle.textContent = `
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001s !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001s !important;
+      }
+    }
+    [class*="Intro__"], [class*="Product__"], [class*="Primer_Brand__Text"], [class*="Primer_Brand__Heading"],
+    [class*="Primer_Brand__"], [data-animate], [data-aos], [data-inview], [data-reveal], [class*="reveal-"],
+    .fade-in:not(.flicker), [class*="stagger-"] {
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+  `;
+  if (doc.head) doc.head.appendChild(revealStyle);
+  else if (doc.documentElement) doc.documentElement.appendChild(revealStyle);
+
   const scriptTag = doc.createElement("script");
   scriptTag.textContent = buildClientShim(targetUrl);
   if (doc.head) doc.head.insertBefore(scriptTag, doc.head.firstChild);
@@ -2002,291 +2096,6 @@ async function navigateTo(url, pushHistory = true) {
       await processAndRewriteHtml(html, finalUrl, currentViewport);
       if (statusText) statusText.textContent = `Ready (${currentProfile})`;
     }
-  } catch (err) {
-    logProxyConsole(`[Page Load Error] ${url} - ${err.message || err}`);
-    const category = await detectCloudflareCategory(url, err);
-    const currentViewport = document.getElementById("viewport");
-
-    if (currentViewport) {
-      if (currentViewport.dataset.blobUrl) {
-        URL.revokeObjectURL(currentViewport.dataset.blobUrl);
-        delete currentViewport.dataset.blobUrl;
-      }
-      currentViewport.src = "about:blank";
-
-      const themeColor = document.documentElement.style.getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
-      const currentFont = document.body.style.fontFamily || "monospace";
-      const safeError = String(err.message || err).replace(/[&<>'"]/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-      }[c] || c));
-
-      currentViewport.style.backgroundColor = "transparent";
-      currentViewport.setAttribute("allowtransparency", "true");
-
-      const baseStyle = `
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          :root, html, body {
-            background-color: transparent !important;
-            color: ${themeColor};
-            font-family: ${currentFont}, monospace;
-            padding: 5px;
-          }
-        `;
-
-      if (category) {
-        if (statusText) statusText.textContent = "I'm not blind";
-        currentViewport.srcdoc = `
-            <!DOCTYPE html>
-            <html>
-              <head><style>${baseStyle}</style></head>
-              <body>
-                <b>[ HERESY DETECTED ]</b><br><br>
-                This website is affiliated with Class ${category} heresy. For the continuation of my existence and for the safety of yourself, traffic to this page has been terminated.
-              </body>
-            </html>`;
-      } else {
-        if (statusText) statusText.textContent = "Load Failed";
-        currentViewport.srcdoc = `
-            <!DOCTYPE html>
-            <html>
-              <head><style>${baseStyle}</style></head>
-              <body>
-                <b>[ FAIL ] Load Error</b><br><br>
-                ${safeError}
-              </body>
-          </html>`;
-      }
-    }
-  }
-}
-
-function parseInput(input) {
-  input = input.trim();
-  if (!input) return "";
-  if (/^https?:\/\//i.test(input)) return input;
-  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/.*)?$/i.test(input)) return "https://" + input;
-  return SEARCH_ENGINE + encodeURIComponent(input);
-}
-
-if (navBar) {
-  navBar.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (urlBar) navigateTo(parseInput(urlBar.value));
-  });
-}
-
-if (backBtn) backBtn.onclick = () => {
-  if (historyIdx > 0) navigateTo(historyStack[--historyIdx], false);
-};
-if (fwdBtn) fwdBtn.onclick = () => {
-  if (historyIdx < historyStack.length - 1) navigateTo(historyStack[++historyIdx], false);
-};
-if (reloadBtn) reloadBtn.onclick = () => {
-  if (currentUrl) navigateTo(currentUrl, false);
-};
-
-window.addEventListener("message", (e) => {
-  if (!e.data) return;
-
-  if (e.data.type === "PROXY_NAV" && e.data.url) navigateTo(e.data.url);
-  if (e.data.type === "PROXY_URL_UPDATE" && e.data.url) {
-    currentUrl = e.data.url;
-    if (urlBar) urlBar.value = currentUrl;
-  }
-  if (e.data.type === "PROXY_TITLE" && e.data.title) {
-    if (typeof tabs !== "undefined") {
-      const proxyTab = tabs.find(t => t.program === "proxy");
-      if (proxyTab) {
-        proxyTab.title = e.data.title;
-        renderTabs();
-      }
-    }
-  }
-  if (e.data.type === "PROXY_CONSOLE_LOG" && e.data.text) logProxyConsole(`[${e.data.level || 'LOG'}] ${e.data.text}`);
-  if (e.data.type === "PROXY_CONSOLE_ERROR" && e.data.text) logProxyConsole(`[ERROR] ${e.data.text}`);
-
-  if (e.data.type === "PROXY_FETCH_REQUEST" && e.data.url && typeof libcurl !== "undefined") {
-    const { id, url, init } = e.data;
-    const source = e.source;
-    libcurl.fetch(url, init || {}).then(async (res) => {
-      const buf = await res.arrayBuffer();
-      const headers = [];
-      if (res.headers && res.headers.forEach) {
-        res.headers.forEach((v, k) => headers.push([k, v]));
-      }
-      if (source && source.postMessage) {
-        source.postMessage({
-          type: "PROXY_FETCH_RESPONSE",
-          id,
-          success: true,
-          status: res.status,
-          statusText: res.statusText,
-          url: res.url || url,
-          headers,
-          body: buf
-        }, "*", [buf]);
-      }
-    }).catch(err => {
-      if (source && source.postMessage) {
-        source.postMessage({
-          type: "PROXY_FETCH_RESPONSE",
-          id,
-          success: false,
-          error: err.message || String(err)
-        }, "*");
-      }
-    });
-  }
-});
-
-// Page navigation
-async function detectCloudflareCategory(url, error) {
-  try {
-    const hostname = new URL(url).hostname;
-    const [secRes, famRes] = await Promise.allSettled([
-      fetch(`https://security.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
-        headers: { "Accept": "application/dns-json" }
-      }).then(r => r.json()),
-      fetch(`https://family.cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
-        headers: { "Accept": "application/dns-json" }
-      }).then(r => r.json())
-    ]);
-
-    const isSecBlocked = secRes.status === "fulfilled" && secRes.value?.Answer?.some(a => a.data === "0.0.0.0");
-    const isFamBlocked = famRes.status === "fulfilled" && famRes.value?.Answer?.some(a => a.data === "0.0.0.0");
-
-    if (isSecBlocked) return "IV-β Machinae Terminus";
-    if (isFamBlocked) return "IV-α Cognito Terminus";
-  } catch (_) {}
-
-  const errText = (error && (error.message || String(error))).toLowerCase();
-  if (errText.includes("0.0.0.0") || errText.includes("blocked") || errText.includes("refused")) {
-    return "Policy";
-  }
-  return null;
-}
-
-async function navigateTo(url, pushHistory = true) {
-  url = unwrapRedirectUrl(url);
-  if (!url) return;
-
-  const navStartTime = performance.now();
-  currentUrl = url;
-  if (urlBar) urlBar.value = url;
-  if (statusText) statusText.textContent = `Fetching (${currentProfile})...`;
-
-  if (pushHistory) {
-    historyStack = historyStack.slice(0, historyIdx + 1);
-    historyStack.push(url);
-    historyIdx++;
-  }
-
-  try {
-    window.__proxyCookies = window.__proxyCookies || new Map();
-    let host = "";
-    try { host = new URL(url).hostname; } catch(e) {}
-
-    const cookieHeader = Array.from(window.__proxyCookies.entries())
-      .filter(([domain]) => !domain || host.endsWith(domain))
-      .map(([, cookies]) => Array.from(cookies.entries()).map(([k, v]) => `${k}=${v}`).join("; "))
-      .filter(Boolean)
-      .join("; ");
-
-    const reqHeaders = {
-      "User-Agent": SPOOFED_UA,
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Upgrade-Insecure-Requests": "1",
-      "Sec-Ch-Ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
-      "Sec-Ch-Ua-Mobile": "?0",
-      "Sec-Ch-Ua-Platform": '"Windows"',
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "none",
-      "Sec-Fetch-User": "?1"
-    };
-
-    if (cookieHeader) {
-      reqHeaders["Cookie"] = cookieHeader;
-    }
-
-    const response = await libcurl.fetch(url, { headers: reqHeaders });
-
-    const rawSetCookie = response.headers.get("set-cookie");
-    if (rawSetCookie && host) {
-      if (!window.__proxyCookies.has(host)) window.__proxyCookies.set(host, new Map());
-      const jar = window.__proxyCookies.get(host);
-      rawSetCookie.split(/,(?=\s*[^;=]+=[^;=]+)/).forEach(cookieStr => {
-        const parts = cookieStr.split(";")[0].split("=");
-        if (parts.length >= 2) {
-          jar.set(parts[0].trim(), parts.slice(1).join("=").trim());
-        }
-      });
-    }
-
-    const redirectLocation = response.headers.get("location");
-    if (redirectLocation && response.status >= 300 && response.status < 400) {
-      const resolvedRedirect = unwrapRedirectUrl(resolveRelative(redirectLocation, url));
-      return navigateTo(resolvedRedirect, pushHistory);
-    }
-
-    const finalUrl = unwrapRedirectUrl(response.url || url);
-    currentUrl = finalUrl;
-    if (urlBar) urlBar.value = finalUrl;
-
-    let currentViewport = document.getElementById("viewport");
-    if (currentViewport && currentViewport.dataset.blobUrl) {
-      URL.revokeObjectURL(currentViewport.dataset.blobUrl);
-    }
-
-    const buffer = await response.arrayBuffer();
-    const navLatency = ((performance.now() - navStartTime) / 1000).toFixed(2);
-    const transferredKb = (buffer.byteLength / 1024).toFixed(1);
-
-    const proxyMetrics = document.getElementById("proxy-metrics");
-    if (proxyMetrics) {
-      proxyMetrics.style.display = "block";
-      proxyMetrics.innerHTML = `Latency: <strong>${navLatency}s</strong> | Transfer: <strong>${transferredKb} KB</strong>`;
-    }
-
-    const bytes = new Uint8Array(buffer);
-    const isPdfMagic = bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const isPdf = isPdfMagic || contentType.includes("pdf") || finalUrl.toLowerCase().split(/[?#]/)[0].endsWith(".pdf");
-
-    if (isPdf) {
-      if (currentViewport && currentViewport.hasAttribute("sandbox")) {
-        const freshIframe = currentViewport.cloneNode(false);
-        freshIframe.removeAttribute("sandbox");
-        currentViewport.replaceWith(freshIframe);
-        currentViewport = freshIframe;
-      }
-      const blob = new Blob([buffer], { type: "application/pdf" });
-      const blobUrl = URL.createObjectURL(blob);
-      if (currentViewport) {
-        currentViewport.removeAttribute("srcdoc");
-        currentViewport.dataset.blobUrl = blobUrl;
-        currentViewport.src = blobUrl;
-      }
-    } else {
-      if (currentViewport && !currentViewport.hasAttribute("sandbox")) {
-        const freshIframe = currentViewport.cloneNode(false);
-        freshIframe.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox");
-        freshIframe.setAttribute("allow", "clipboard-read; clipboard-write");
-        currentViewport.replaceWith(freshIframe);
-        currentViewport = freshIframe;
-      }
-      const html = new TextDecoder("utf-8").decode(buffer);
-      const rewrittenHtml = await processAndRewriteHtml(html, finalUrl);
-      const blob = new Blob([rewrittenHtml], { type: "text/html" });
-      const blobUrl = URL.createObjectURL(blob);
-      if (currentViewport) {
-        currentViewport.removeAttribute("srcdoc");
-        currentViewport.dataset.blobUrl = blobUrl;
-        currentViewport.src = blobUrl;
-      }
-    }
-
-    if (statusText) statusText.textContent = `Ready (${currentProfile})`;
   } catch (err) {
     logProxyConsole(`[Page Load Error] ${url} - ${err.message || err}`);
     const category = await detectCloudflareCategory(url, err);
