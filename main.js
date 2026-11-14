@@ -2,7 +2,7 @@
 const songData = [
   { filename: "resurrection.mp3", title: "ППК - Воскрешение" },
   { filename: "dont_leave.mp3", title: "Gummy Boy - Don't Leave" },
-  { filename: "zagadka.mp3", title: "PRNRML - Загадка 1" },
+  { filename: "zagadka1.mp3", title: "PRNRML - Загадка 1" },
   { filename: "zodiak.mp3", title: "Зодиак - Зодиак" },
   { filename: "groza.mp3", title: "Творожное озеро - Гроза" },
   { filename: "phobos.mp3", title: "Dmitriy Ivankov - Phobos" },
@@ -738,6 +738,37 @@ function resolveRelative(refUrl, baseUrl) {
   }
 }
 
+function rewriteScriptCode(code, scriptUrl) {
+  if (!code || typeof code !== 'string' || !scriptUrl) return code;
+  try {
+    const scriptBase = scriptUrl.substring(0, scriptUrl.lastIndexOf('/') + 1);
+    code = code.replace(/\bimport\.meta\.url\b/g, JSON.stringify(scriptUrl));
+    code = code.replace(/\bimport\s*\(\s*(['"`])(\.\.?\/[^'"`]+)\1\s*\)/g, (match, quote, relPath) => {
+      return `import(${quote}${resolveRelative(relPath, scriptBase)}${quote})`;
+    });
+    code = code.replace(/\b(from\s*)(['"`])(\.\.?\/[^'"`]+)\2/g, (match, fromClause, quote, relPath) => {
+      return `${fromClause}${quote}${resolveRelative(relPath, scriptBase)}${quote}`;
+    });
+    code = code.replace(/\b(import\s*)(['"`])(\.\.?\/[^'"`]+)\2/g, (match, importClause, quote, relPath) => {
+      return `${importClause}${quote}${resolveRelative(relPath, scriptBase)}${quote}`;
+    });
+    if (scriptBase && scriptBase.startsWith('http')) {
+      code = `try { if (typeof self !== 'undefined') self.__webpack_public_path__ = ${JSON.stringify(scriptBase)}; } catch(e) {}; ` + code;
+    }
+  } catch (e) {}
+  return code;
+}
+
+function sanitizeCode(code) {
+  if (!code || typeof code !== 'string') return code;
+  return code
+    .replace(/(top\.location|window\.top\.location|parent\.location)\s*=/gi, "window.__dummyLocation =")
+    .replace(/\bwindow\.top\b/g, "window.self")
+    .replace(/\bwindow\.location\b/g, "window.__proxyLocation")
+    .replace(/\bdocument\.location\b/g, "window.__proxyLocation")
+    .replace(/(?<![\w$.])location\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\b/g, "__proxyLocation.$1");
+}
+
 function bufferToDataUri(buffer, mimeType) {
   let binary = "";
   const bytes = new Uint8Array(buffer);
@@ -929,7 +960,7 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
   const inlineCssEnabled = inlineCssToggleEl ? inlineCssToggleEl.textContent.includes("ON") : true;
 
   const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel="stylesheet"]')] : [];
-  const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 40);
+  const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 60);
   const totalElements = linkTags.length + imgTags.length;
   let remaining = totalElements;
 
@@ -987,11 +1018,15 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
     const dataUri = await fetchAssetTunnel(absUrl, true);
     if (dataUri) {
       img.setAttribute("src", dataUri);
+      img.removeAttribute("srcset");
       try {
         const liveDoc = iframeTarget && (iframeTarget.contentDocument || iframeTarget.contentWindow?.document);
         if (liveDoc) {
           const liveImg = liveDoc.querySelector(`img[src="${CSS.escape(src)}"]`);
-          if (liveImg) liveImg.setAttribute("src", dataUri);
+          if (liveImg) {
+            liveImg.setAttribute("src", dataUri);
+            liveImg.removeAttribute("srcset");
+          }
         }
       } catch (_) {}
     }
@@ -1051,7 +1086,7 @@ function buildClientShim(targetUrl) {
         window.matchMedia = function(query) {
           if (typeof query === "string" && query.includes("prefers-reduced-motion")) {
             return {
-              matches: true,
+              matches: false,
               media: query,
               onchange: null,
               addListener: () => {},
@@ -1183,6 +1218,57 @@ function buildClientShim(targetUrl) {
           .replace(/(?<![\\w$.])location\\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\\b/g, "__proxyLocation.$1");
       }
 
+      function rewriteScriptCodeInShim(code, scriptUrl) {
+        if (!code || typeof code !== 'string' || !scriptUrl) return code;
+        try {
+          const scriptBase = scriptUrl.substring(0, scriptUrl.lastIndexOf('/') + 1);
+          code = code.replace(/\\bimport\\.meta\\.url\\b/g, JSON.stringify(scriptUrl));
+          code = code.replace(/\\bimport\\s*\\(\\s*(['"\`])(\\.\\.?\\/[^'"\`]+)\\1\\s*\\)/g, function(match, quote, relPath) {
+            return 'import(' + quote + new URL(relPath, scriptBase).href + quote + ')';
+          });
+          code = code.replace(/\\b(from\\s*)(['"\`])(\\.\\.?\\/[^'"\`]+)\\2/g, function(match, fromClause, quote, relPath) {
+            return fromClause + quote + new URL(relPath, scriptBase).href + quote;
+          });
+          code = code.replace(/\\b(import\\s*)(['"\`])(\\.\\.?\\/[^'"\`]+)\\2/g, function(match, importClause, quote, relPath) {
+            return importClause + quote + new URL(relPath, scriptBase).href + quote;
+          });
+          if (scriptBase && scriptBase.startsWith('http')) {
+            code = 'try { if (typeof self !== "undefined") self.__webpack_public_path__ = ' + JSON.stringify(scriptBase) + '; } catch(e) {}; ' + code;
+          }
+        } catch(e) {}
+        return code;
+      }
+
+      const origScriptSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+      Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+        get: function() {
+          return this.getAttribute('data-proxied-src') || (origScriptSrcDesc && origScriptSrcDesc.get ? origScriptSrcDesc.get.call(this) : this.getAttribute('src')) || '';
+        },
+        set: function(val) {
+          const resolved = resolveTarget(val);
+          this.setAttribute('data-proxied-src', resolved);
+          if (origScriptSrcDesc && origScriptSrcDesc.set) {
+            origScriptSrcDesc.set.call(this, resolved);
+          } else {
+            this.setAttribute('src', resolved);
+          }
+        },
+        configurable: true
+      });
+
+      let activeCurrentScript = null;
+      const origCurrentScriptDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript') ||
+                                    Object.getOwnPropertyDescriptor(document, 'currentScript');
+      try {
+        Object.defineProperty(document, 'currentScript', {
+          get: function() {
+            if (activeCurrentScript) return activeCurrentScript;
+            return origCurrentScriptDesc && origCurrentScriptDesc.get ? origCurrentScriptDesc.get.call(this) : null;
+          },
+          configurable: true
+        });
+      } catch (e) {}
+
       const __proxyLocation = {
         get href() { return parsedTarget.href; },
         set href(val) { window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(val)) }, '*'); },
@@ -1236,20 +1322,32 @@ function buildClientShim(targetUrl) {
             if (safeBase.startsWith('blob:') || safeBase === 'null' || (window.location.origin && window.location.origin !== 'null' && safeBase.startsWith(window.location.origin))) {
               safeBase = TARGET_URL;
             }
-          } else if (!safeBase && typeof url === 'string' && !url.includes('://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
+          } else if (!safeBase) {
             safeBase = TARGET_URL;
           }
 
           let safeUrl = url;
           if (safeUrl && typeof safeUrl === 'object' && typeof safeUrl.href === 'string') safeUrl = safeUrl.href;
-          if (typeof safeUrl === 'string' && (safeUrl.startsWith('blob:') || safeUrl === window.location.href)) {
-            safeUrl = TARGET_URL;
+          if (typeof safeUrl === 'string') {
+            if (safeUrl.startsWith('blob:') || safeUrl === window.location.href) {
+              safeUrl = TARGET_URL;
+            }
+          } else {
+            safeUrl = String(safeUrl || '');
           }
 
           try {
             return new OrigURL(safeUrl, safeBase);
-          } catch (err) {
-            return new OrigURL(safeUrl, TARGET_URL);
+          } catch (err1) {
+            try {
+              return new OrigURL(safeUrl, TARGET_URL);
+            } catch (err2) {
+              try {
+                return new OrigURL(TARGET_URL);
+              } catch (_) {
+                return Object.create(OrigURL.prototype);
+              }
+            }
           }
         }
         ProxiedURL.prototype = OrigURL.prototype;
@@ -1308,6 +1406,71 @@ function buildClientShim(targetUrl) {
         });
       }
 
+      function patchImage(img) {
+        if (img.__proxied) return;
+        img.__proxied = true;
+        const origSetAttr = img.setAttribute.bind(img);
+
+        let realSrc = '';
+        Object.defineProperty(img, 'src', {
+          get: () => realSrc || img.getAttribute('data-proxied-src') || '',
+          set: (val) => {
+            realSrc = resolveTarget(val);
+            origSetAttr('data-proxied-src', realSrc);
+            if (!isInternalUrl(realSrc)) {
+              executeTunnelRequest(realSrc, { method: 'GET' }).then(async (res) => {
+                const buf = await res.arrayBuffer();
+                let mime = 'image/png';
+                if (res.headers) {
+                  if (typeof res.headers.get === 'function') mime = res.headers.get('content-type') || mime;
+                  else if (Array.isArray(res.headers)) {
+                    const ct = res.headers.find(([k]) => k.toLowerCase() === 'content-type');
+                    if (ct) mime = ct[1];
+                  }
+                }
+                const blob = new Blob([buf], { type: mime });
+                const blobUrl = URL.createObjectURL(blob);
+                origSetAttr('src', blobUrl);
+                img.removeAttribute('srcset');
+                img.dispatchEvent(new Event('load'));
+                if (typeof img.onload === 'function') {
+                  try { img.onload(new Event('load')); } catch(e) {}
+                }
+              }).catch(() => {
+                origSetAttr('src', realSrc);
+                img.dispatchEvent(new Event('error'));
+                if (typeof img.onerror === 'function') {
+                  try { img.onerror(new Event('error')); } catch(e) {}
+                }
+              });
+            } else {
+              origSetAttr('src', realSrc);
+            }
+          },
+          configurable: true
+        });
+
+        img.setAttribute = function(name, val) {
+          if (name && name.toLowerCase() === 'src') {
+            img.src = val;
+          } else if (name && name.toLowerCase() === 'srcset') {
+            origSetAttr('data-orig-srcset', val);
+          } else {
+            origSetAttr(name, val);
+          }
+        };
+      }
+
+      const OrigImage = window.Image;
+      if (OrigImage) {
+        window.Image = function(width, height) {
+          const img = new OrigImage(width, height);
+          patchImage(img);
+          return img;
+        };
+        window.Image.prototype = OrigImage.prototype;
+      }
+
       const origCreateElement = document.createElement.bind(document);
       document.createElement = function(tagName, options) {
         const el = origCreateElement(tagName, options);
@@ -1318,20 +1481,24 @@ function buildClientShim(targetUrl) {
           const origSetAttribute = el.setAttribute.bind(el);
           let scriptSrc = '';
           Object.defineProperty(el, 'src', {
-            get: () => scriptSrc,
+            get: () => scriptSrc || el.getAttribute('data-proxied-src') || '',
             set: (val) => {
               scriptSrc = resolveTarget(val);
               origSetAttribute('data-proxied-src', scriptSrc);
               executeTunnelRequest(scriptSrc, { method: 'GET' })
                 .then(async (res) => {
                   const buf = await res.arrayBuffer();
-                  const code = new TextDecoder().decode(buf);
+                  let code = new TextDecoder().decode(buf);
                   try {
                     const runner = origCreateElement('script');
                     if (el.type) runner.type = el.type;
                     if (el.noModule) runner.noModule = el.noModule;
+                    runner.setAttribute('data-proxied-src', scriptSrc);
+                    code = rewriteScriptCodeInShim(code, scriptSrc);
                     runner.textContent = sanitizeCode(code);
+                    activeCurrentScript = el;
                     (document.head || document.documentElement).appendChild(runner);
+                    activeCurrentScript = null;
                     if (runner.type !== 'module') {
                       runner.remove();
                     }
@@ -1393,24 +1560,7 @@ function buildClientShim(targetUrl) {
             else origSetAttr(name, val);
           };
         } else if (tag === 'img') {
-          const origSetAttr = el.setAttribute.bind(el);
-          let imgSrc = '';
-          Object.defineProperty(el, 'src', {
-            get: () => imgSrc,
-            set: (val) => {
-              imgSrc = resolveTarget(val);
-              if (!isInternalUrl(imgSrc)) {
-                executeTunnelRequest(imgSrc, { method: 'GET' }).then(async res => {
-                  const buf = await res.arrayBuffer();
-                  const blob = new Blob([buf], { type: 'image/png' });
-                  origSetAttr('src', URL.createObjectURL(blob));
-                }).catch(() => origSetAttr('src', imgSrc));
-              } else {
-                origSetAttr('src', imgSrc);
-              }
-            },
-            configurable: true
-          });
+          patchImage(el);
         }
         return el;
       };
@@ -1420,7 +1570,7 @@ function buildClientShim(targetUrl) {
         window.Worker = function(scriptURL, options) {
           const resolved = resolveTarget(scriptURL);
           if (!resolved.startsWith('blob:')) {
-            const shimmedWorkerCode = \`importScripts(\${JSON.stringify(resolved)});\`;
+            const shimmedWorkerCode = "importScripts(" + JSON.stringify(resolved) + ");";
             const blob = new Blob([shimmedWorkerCode], { type: 'application/javascript' });
             return new OrigWorker(URL.createObjectURL(blob), options);
           }
@@ -1799,7 +1949,7 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
 
   doc.querySelectorAll("meta[http-equiv='Content-Security-Policy' i], meta[http-equiv='X-Frame-Options' i], meta[name='referrer' i]").forEach(el => el.remove());
   doc.querySelectorAll("[integrity]").forEach(el => el.removeAttribute("integrity"));
-  doc.querySelectorAll("[crossorigin]").forEach(el => el.removeAttribute("crossorigin"));
+  doc.querySelectorAll("[crossorigin]:not([as='font'])").forEach(el => el.removeAttribute("crossorigin"));
 
   const metaRefresh = doc.querySelector("meta[http-equiv='refresh' i]");
   if (metaRefresh) {
@@ -1827,6 +1977,37 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     const raw = el.getAttribute("src");
     if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
       el.setAttribute("src", resolveRelative(raw, targetUrl));
+    }
+  });
+
+  doc.querySelectorAll("img[src], source[src]").forEach(el => {
+    const raw = el.getAttribute("src");
+    if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
+      el.setAttribute("src", resolveRelative(raw, targetUrl));
+    }
+  });
+
+  doc.querySelectorAll("img[srcset], source[srcset]").forEach(el => {
+    const raw = el.getAttribute("srcset");
+    if (raw) {
+      const rewritten = raw.split(",").map(part => {
+        const trimmed = part.trim();
+        const firstSpace = trimmed.indexOf(" ");
+        if (firstSpace === -1) return resolveRelative(trimmed, targetUrl);
+        const url = trimmed.slice(0, firstSpace);
+        const descriptor = trimmed.slice(firstSpace);
+        return resolveRelative(url, targetUrl) + descriptor;
+      }).join(", ");
+      el.setAttribute("srcset", rewritten);
+    }
+  });
+
+  doc.querySelectorAll("image[href], image[xlink\\:href]").forEach(el => {
+    const raw = el.getAttribute("href") || el.getAttribute("xlink:href");
+    if (raw && !raw.startsWith("data:") && !raw.startsWith("blob:")) {
+      const abs = resolveRelative(raw, targetUrl);
+      if (el.hasAttribute("href")) el.setAttribute("href", abs);
+      if (el.hasAttribute("xlink:href")) el.setAttribute("xlink:href", abs);
     }
   });
 
@@ -1886,16 +2067,22 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
       const absSrc = resolveRelative(rawSrc, targetUrl);
       const scriptContent = await fetchAssetTunnel(absSrc, false);
       if (scriptContent) {
+        script.setAttribute("data-proxied-src", absSrc);
         script.removeAttribute("src");
-        script.textContent = scriptContent.replace(/<\/script/gi, "<\\/script");
+        const rewritten = rewriteScriptCode(scriptContent, absSrc);
+        script.textContent = sanitizeCode(rewritten).replace(/<\/script/gi, "<\\/script");
       } else {
         script.setAttribute("src", absSrc);
+        script.setAttribute("data-proxied-src", absSrc);
       }
     }
   }));
 
   doc.querySelectorAll("script").forEach(script => {
     if (script.textContent) {
+      if (script.type === "importmap" || script.type === "application/json" || script.type === "application/ld+json") {
+        return;
+      }
       let code = script.textContent;
       if (/(top\.location|window\.top\.location|parent\.location)\s*=/i.test(code)) {
         code = code.replace(/(top\.location|window\.top\.location|parent\.location)\s*=/gi, "window.__dummyLocation =");
@@ -2735,6 +2922,7 @@ function switchTab(id) {
     if (progEl) progEl.style.display = "block";
     if (targetTab.program === "games") document.getElementById("fileSearch")?.focus();
     if (targetTab.program === "youtube") document.getElementById("query")?.focus();
+    if (targetTab.program === "proxy") document.getElementById("url-bar")?.focus();
   }
 }
 
