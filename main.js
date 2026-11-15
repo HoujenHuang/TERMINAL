@@ -2411,9 +2411,7 @@ const DEFAULT_PYTHON = 'print("Hello, World!")';
 let currentLangValue = "language-html";
 let isConsoleCollapsed = false;
 let preEditorTheme = null;
-let highlightTimeout = null;
 let saveTimeout = null;
-let lastLineCount = -1;
 
 function savePreEditorTheme() {
   if (!preEditorTheme) {
@@ -2430,11 +2428,47 @@ function restorePreEditorTheme() {
 }
 
 function updateLineNumbers() {
-  const lineCount = codebox.value.split("\n").length;
-  if (lineCount === lastLineCount) return;
-  lastLineCount = lineCount;
+  const code = codebox.value;
+  const lines = code.split("\n");
+  const lineCount = lines.length;
+
+  let mirror = document.getElementById("editorLineMeasureMirror");
+  if (!mirror) {
+    mirror = document.createElement("div");
+    mirror.id = "editorLineMeasureMirror";
+    mirror.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;padding:0;margin:0;border:none;";
+    document.body.appendChild(mirror);
+  }
+
+  const cs = window.getComputedStyle(codebox);
+  mirror.style.fontFamily = cs.fontFamily;
+  mirror.style.fontSize = cs.fontSize;
+  mirror.style.lineHeight = cs.lineHeight;
+  mirror.style.letterSpacing = cs.letterSpacing;
+
+  const clientWidth = codebox.clientWidth;
+  const pl = parseFloat(cs.paddingLeft) || 0;
+  const pr = parseFloat(cs.paddingRight) || 0;
+  const contentWidth = Math.max(10, clientWidth - pl - pr);
+  mirror.style.width = contentWidth + "px";
+
+  mirror.textContent = "M";
+  const baseLineHeight = mirror.offsetHeight || 18;
+
   let arr = [];
-  for (let i = 1; i <= lineCount; i++) arr.push(i);
+  for (let i = 0; i < lineCount; i++) {
+    const lineText = lines[i];
+    arr.push(i + 1);
+    if (lineText.length > 0 && clientWidth > 0) {
+      mirror.textContent = lineText;
+      const h = mirror.offsetHeight;
+      const extraLines = Math.max(0, Math.round(h / baseLineHeight) - 1);
+      for (let j = 0; j < extraLines; j++) {
+        arr.push("");
+      }
+    }
+  }
+
   lineNumbers.textContent = arr.join("\n") + "\n";
 }
 
@@ -2446,6 +2480,7 @@ function highlightJS() {
 
 function updateCode(immediateHighlight = false) {
   codeBlock.textContent = codebox.value;
+  highlightJS();
   updateLineNumbers();
 
   clearTimeout(saveTimeout);
@@ -2454,31 +2489,32 @@ function updateCode(immediateHighlight = false) {
       localStorage.setItem("savedCode_" + currentLangValue, codebox.value);
     } catch (e) {}
   }, 300);
-
-  clearTimeout(highlightTimeout);
-  if (immediateHighlight) highlightJS();
-  else highlightTimeout = setTimeout(highlightJS, 150);
 }
 
 codebox.addEventListener("input", () => updateCode(false));
 
 let isSyncingScroll = false;
-codebox.addEventListener("scroll", () => {
+function syncEditorScroll(source) {
   if (isSyncingScroll) return;
   isSyncingScroll = true;
-  codeBlock.scrollTop = codebox.scrollTop;
-  codeBlock.scrollLeft = codebox.scrollLeft;
-  lineNumbers.scrollTop = codebox.scrollTop;
-  requestAnimationFrame(() => { isSyncingScroll = false; });
-});
+  if (source === codebox) {
+    codeBlock.scrollTop = codebox.scrollTop;
+    lineNumbers.scrollTop = codebox.scrollTop;
+  } else if (source === codeBlock) {
+    codebox.scrollTop = codeBlock.scrollTop;
+    lineNumbers.scrollTop = codeBlock.scrollTop;
+  }
+  isSyncingScroll = false;
+}
 
-codeBlock.addEventListener("scroll", () => {
-  if (isSyncingScroll) return;
-  isSyncingScroll = true;
-  codebox.scrollTop = codeBlock.scrollTop;
-  codebox.scrollLeft = codeBlock.scrollLeft;
-  lineNumbers.scrollTop = codeBlock.scrollTop;
-  requestAnimationFrame(() => { isSyncingScroll = false; });
+codebox.addEventListener("scroll", () => syncEditorScroll(codebox));
+codeBlock.addEventListener("scroll", () => syncEditorScroll(codeBlock));
+window.addEventListener("resize", () => {
+  const htmlEl = document.getElementById("html");
+  if (htmlEl && htmlEl.style.display !== "none") {
+    updateLineNumbers();
+    syncEditorScroll(codebox);
+  }
 });
 
 codebox.addEventListener('keydown', (e) => {
@@ -2538,6 +2574,52 @@ function setTheme() {
   }
 }
 
+function resetEditorConsoleHeight() {
+  const wrapper = document.getElementById("editor-console-wrapper");
+  if (wrapper) {
+    wrapper.style.height = "35%";
+  }
+}
+
+function initEditorResizeHandler() {
+  const handle = document.getElementById("editor-resize-handle");
+  const wrapper = document.getElementById("editor-console-wrapper");
+  const outputWrapper = document.getElementById("editorOutputWrapper");
+  const preview = document.getElementById("preview-window");
+  if (!handle || !wrapper || !outputWrapper || handle.dataset.initialized) return;
+  handle.dataset.initialized = "true";
+
+  let isDragging = false;
+
+  handle.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    handle.classList.add("active");
+    if (preview) preview.style.pointerEvents = "none";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const wsRect = outputWrapper.getBoundingClientRect();
+    const newHeight = wsRect.bottom - e.clientY;
+    const minH = 80;
+    const maxH = wsRect.height * 0.85;
+    if (newHeight >= minH && newHeight <= maxH) {
+      wrapper.style.height = `${newHeight}px`;
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      handle.classList.remove("active");
+      if (preview) preview.style.pointerEvents = "auto";
+      document.body.style.userSelect = "";
+    }
+  });
+}
+
 function toggleHtmlConsole() {
   isConsoleCollapsed = !isConsoleCollapsed;
   setCookie("htmlConsoleCollapsed", isConsoleCollapsed, 30);
@@ -2546,7 +2628,8 @@ function toggleHtmlConsole() {
 
 function applyConsoleCollapseState() {
   const preview = document.getElementById("preview-window");
-  const htmlConsole = document.getElementById("htmlConsole");
+  const consoleWrapper = document.getElementById("editor-console-wrapper");
+  const resizeHandle = document.getElementById("editor-resize-handle");
   const toggleBtn = document.getElementById("toggleConsoleBtn");
   const isHtml = currentLangValue === "language-html";
 
@@ -2557,11 +2640,13 @@ function applyConsoleCollapseState() {
 
   if (isHtml) {
     if (isConsoleCollapsed) {
-      if (htmlConsole) htmlConsole.style.display = "none";
+      if (consoleWrapper) consoleWrapper.style.display = "none";
+      if (resizeHandle) resizeHandle.style.display = "none";
       if (preview) preview.style.height = "100%";
     } else {
-      if (htmlConsole) htmlConsole.style.display = "block";
-      if (preview) preview.style.height = "calc(65% - 5px)";
+      if (consoleWrapper) consoleWrapper.style.display = "flex";
+      if (resizeHandle) resizeHandle.style.display = "block";
+      if (preview) preview.style.height = "";
     }
   }
 }
@@ -2573,16 +2658,6 @@ function setupEditorPanels() {
 
   const runBtn = document.querySelector("#html .html-btn");
 
-  if (!document.getElementById("clearConsoleBtn")) {
-    const clearBtn = document.createElement("button");
-    clearBtn.id = "clearConsoleBtn";
-    clearBtn.className = "html-btn";
-    clearBtn.textContent = "Clear Console";
-    clearBtn.style.cssText = "width: 18%; background: var(--theme); margin: 0 4px; cursor: pointer;";
-    clearBtn.onclick = clearConsole;
-    if (runBtn && runBtn.parentNode) runBtn.parentNode.insertBefore(clearBtn, runBtn.nextSibling);
-  }
-
   if (!document.getElementById("toggleConsoleBtn")) {
     const toggleBtn = document.createElement("button");
     toggleBtn.id = "toggleConsoleBtn";
@@ -2590,25 +2665,43 @@ function setupEditorPanels() {
     toggleBtn.textContent = isConsoleCollapsed ? "Show Console" : "Hide Console";
     toggleBtn.style.cssText = "width: 18%; background: var(--theme); margin: 0 4px; cursor: pointer;";
     toggleBtn.onclick = toggleHtmlConsole;
-    const clearBtn = document.getElementById("clearConsoleBtn");
-    if (clearBtn && clearBtn.parentNode) clearBtn.parentNode.insertBefore(toggleBtn, clearBtn.nextSibling);
+    if (runBtn && runBtn.parentNode) runBtn.parentNode.insertBefore(toggleBtn, runBtn.nextSibling);
   }
 
   let wrapper = document.getElementById("editorOutputWrapper");
   if (!wrapper) {
     wrapper = document.createElement("div");
     wrapper.id = "editorOutputWrapper";
-    wrapper.style.cssText = "display: flex; flex-direction: column; width: calc(50% - 5px); height: 100%; margin-left: 5px; box-sizing: border-box;";
     preview.parentNode.insertBefore(wrapper, preview);
     wrapper.appendChild(preview);
 
+    const resizeHandle = document.createElement("div");
+    resizeHandle.id = "editor-resize-handle";
+    wrapper.appendChild(resizeHandle);
+
+    const consoleWrapper = document.createElement("div");
+    consoleWrapper.id = "editor-console-wrapper";
+
+    const header = document.createElement("div");
+    header.id = "editor-console-header";
+    header.innerHTML = `
+      <span style="color: var(--theme);">
+        <b>EDITOR CONSOLE</b>
+      </span>
+      <div style="display: flex; gap: 4px;">
+        <button type="button" onclick="resetEditorConsoleHeight()" style="width: auto;">Reset Height</button><span> | </span>
+        <button type="button" onclick="clearConsole()" style="width: auto;">Clear</button>
+      </div>
+    `;
+    consoleWrapper.appendChild(header);
+
     const htmlConsole = document.createElement("textarea");
     htmlConsole.id = "htmlConsole";
-    htmlConsole.placeholder = "HTML Console output...";
     htmlConsole.readOnly = true;
     htmlConsole.spellcheck = false;
-    htmlConsole.style.cssText = "display: block; width: 100%; height: 35%; margin-top: 5px; background: transparent; color: var(--theme); border: 2px solid var(--theme); font-family: inherit; font-size: 1vw; padding: 10px; outline: none; resize: none; overflow-y: auto; box-sizing: border-box;";
-    wrapper.appendChild(htmlConsole);
+    consoleWrapper.appendChild(htmlConsole);
+
+    wrapper.appendChild(consoleWrapper);
 
     if (rte) {
       wrapper.appendChild(rte);
@@ -2618,8 +2711,12 @@ function setupEditorPanels() {
     }
 
     preview.style.width = "100%";
-    preview.style.height = "calc(65% - 5px)";
+    preview.style.flex = "1 1 0";
+    preview.style.minHeight = "0";
+    preview.style.border = "none";
     preview.style.margin = "0";
+
+    initEditorResizeHandler();
   }
 
   applyConsoleCollapseState();
@@ -2630,7 +2727,8 @@ function updateEditorView() {
   const selectElement = document.getElementById("selectLanguage");
   const selectedIndex = selectElement ? selectElement.selectedIndex : 0;
   const preview = document.getElementById("preview-window");
-  const htmlConsole = document.getElementById("htmlConsole");
+  const consoleWrapper = document.getElementById("editor-console-wrapper");
+  const resizeHandle = document.getElementById("editor-resize-handle");
   const rte = document.getElementById("rte");
 
   if (selectedIndex === 0) {
@@ -2639,8 +2737,12 @@ function updateEditorView() {
     applyConsoleCollapseState();
   } else {
     if (preview) preview.style.display = "none";
-    if (htmlConsole) htmlConsole.style.display = "none";
-    if (rte) rte.style.display = "block";
+    if (consoleWrapper) consoleWrapper.style.display = "none";
+    if (resizeHandle) resizeHandle.style.display = "none";
+    if (rte) {
+      rte.style.display = "block";
+      rte.style.height = "100%";
+    }
     const toggleBtn = document.getElementById("toggleConsoleBtn");
     if (toggleBtn) toggleBtn.style.display = "none";
   }
@@ -2705,7 +2807,6 @@ document.getElementById("selectLanguage").addEventListener("change", function() 
   if (savedContent !== null) codebox.value = savedContent;
   else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
 
-  lastLineCount = -1;
   updateCode(true);
   setTheme();
 });
