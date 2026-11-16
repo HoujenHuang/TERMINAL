@@ -605,7 +605,6 @@ body.admin-graph-mode .admin-feature:not(.mini-info-container) {
   width: 100%;
   padding: 6px 10px;
   box-sizing: border-box;
-  border-bottom: 1px solid var(--theme);
   flex-shrink: 0;
   background: transparent;
 }
@@ -736,6 +735,109 @@ body.admin-graph-mode .admin-feature:not(.mini-info-container) {
   overflow-wrap: break-word;
   word-break: break-word;
   box-sizing: border-box;
+}
+
+#bookmark-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 10px;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid var(--theme);
+  flex-shrink: 0;
+  background: transparent;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 24px;
+}
+
+#bookmark-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.bookmark-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font: 0.85vw "Courier New", monospace;
+  color: var(--theme);
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+.bookmark-item:hover {
+  background: color-mix(in srgb, var(--theme) 20%, transparent);
+  border: 1px solid var(--theme);
+}
+
+.bookmark-item.dragging {
+  opacity: 0.4;
+}
+
+.bookmark-item.drag-over {
+  border-left: 2px solid var(--theme);
+}
+
+.bookmark-favicon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.bookmark-title {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-title-input {
+  field-sizing: content;
+  max-width: 160px;
+  min-width: 30px;
+  background: transparent;
+  border: 1px solid var(--theme);
+  color: var(--theme);
+  font: 0.85vw "Courier New", monospace;
+  outline: none;
+  padding: 0 2px;
+  caret-shape: block;
+}
+
+#bookmark-context-menu {
+  position: fixed;
+  display: none;
+  flex-direction: column;
+  background: black;
+  border: 1px solid var(--theme);
+  box-shadow: 0 0 5px var(--theme);
+  z-index: 10000;
+  min-width: 90px;
+}
+
+#bookmark-context-menu button {
+  background: transparent;
+  color: var(--theme);
+  border: none;
+  padding: 4px 8px;
+  font: 0.85vw "Courier New", monospace;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+#bookmark-context-menu button:hover {
+  background: var(--theme);
+  color: #000000;
 }
 
 /* Code editor */
