@@ -148,7 +148,7 @@
           </div>
 
           <!-- Games -->
-          <div id="games" class="program">
+          <div id="games" class="program invisible">
             <section class="flexbox">
               <div class="normal">
                 <span><b><span class="user">guest</span>@games:~$</b> find&nbsp;</span>
@@ -276,7 +276,7 @@
           </div>
 
           <!-- Command input -->
-          <div id="commandInput" class="invisible">
+          <div id="commandInput">
             <section class="flexbox">
               <div class="normal">
                 <b><span class="user">guest</span>@terminal:~$</b>&nbsp;
@@ -295,12 +295,20 @@
             <button type="button" id="fwd-btn">&rarr;</button>
             <button type="button" id="reload-btn">&#x21bb;</button>
             <input type="text" id="url-bar" placeholder="Enter URL or search query..." required autocomplete="off" />
+            <button type="button" id="bookmark-btn" title="Bookmark this page" style="display: none;">&#9734;</button>
             <span id="proxy-service-status">Wisp: Checking...</span>
             <span>|</span>
             <span id="proxy-status">Initializing...</span>
             <span>|</span>
             <button type="submit" id="go-btn" disabled>Go</button>
           </form>
+
+          <div id="bookmark-bar"></div>
+
+          <div id="bookmark-context-menu">
+            <button type="button" id="bm-ctx-rename">Rename</button>
+            <button type="button" id="bm-ctx-delete">Delete</button>
+          </div>
 
           <div id="proxy-workspace" class="layout-horizontal">
             <iframe id="viewport" allow="clipboard-read; clipboard-write" sandbox="allow-scripts allow-forms allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"></iframe>
