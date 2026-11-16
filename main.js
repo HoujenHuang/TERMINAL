@@ -474,9 +474,9 @@ async function checkPublicServicesHealth() {
       proxyStatusEl.textContent = `Wisp: ${data.wisp}`;
     }
 
-    load(`[ OK ] YouTube pinged (${data.youtube})`);
-    load(`[ OK ] Tsarevich pinged (${data.gemini})`);
-    load(`[ OK ] Proxy pinged (${data.wisp})`);
+    load(`[ OK ] YouTube pinged: ${data.youtube}`);
+    load(`[ OK ] Tsarevich pinged: ${data.gemini}`);
+    load(`[ OK ] Proxy pinged: ${data.wisp}`);
   } catch (e) {
     const ytStatusEl = document.getElementById("youtubeServiceStatus");
     if (ytStatusEl) ytStatusEl.textContent = "SERVICES: Gateway Unreachable";
@@ -505,6 +505,9 @@ const viewport = document.getElementById("viewport");
 const backBtn = document.getElementById("back-btn");
 const fwdBtn = document.getElementById("fwd-btn");
 const reloadBtn = document.getElementById("reload-btn");
+const bookmarkBtn = document.getElementById("bookmark-btn");
+const bookmarkBar = document.getElementById("bookmark-bar");
+const bookmarkContextMenu = document.getElementById("bookmark-context-menu");
 
 const protoSelect = document.getElementById("proto-select");
 const secSelect = document.getElementById("sec-select");
@@ -520,9 +523,14 @@ const profileDisplay = document.getElementById("profile-display");
 const assetCache = new Map();
 
 let currentUrl = "";
+let currentTitle = "";
+let currentFavicon = "";
 let historyStack = [];
 let historyIdx = -1;
 let currentProfile = "warp";
+let bookmarks = [];
+let activeContextBmId = null;
+let draggedBmId = null;
 
 // Compatibility check
 function syncLayerOptions() {
@@ -1930,6 +1938,23 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, "text/html");
 
+  const pageTitleEl = doc.querySelector("title");
+  if (pageTitleEl && pageTitleEl.textContent) {
+    currentTitle = pageTitleEl.textContent.trim();
+  }
+
+  const iconEl = doc.querySelector("link[rel*='icon' i]");
+  if (iconEl && iconEl.getAttribute("href")) {
+    currentFavicon = resolveRelative(iconEl.getAttribute("href"), targetUrl);
+  } else {
+    try {
+      currentFavicon = new URL("/favicon.ico", targetUrl).href;
+    } catch (_) {
+      currentFavicon = "";
+    }
+  }
+  if (typeof updateBookmarkBtn === "function") updateBookmarkBtn();
+
   const canonicalLink = doc.querySelector("link[rel='canonical' i]");
   if (canonicalLink) {
     const rawCanonical = canonicalLink.getAttribute("href");
@@ -2157,6 +2182,7 @@ async function navigateTo(url, pushHistory = true) {
   if (urlBar) urlBar.value = url;
   if (statusText) statusText.textContent = `0%`;
   updateRemainingDisplay(0);
+  if (typeof updateBookmarkBtn === 'function') updateBookmarkBtn();
 
   if (pushHistory) {
     historyStack = historyStack.slice(0, historyIdx + 1);
@@ -2251,6 +2277,7 @@ async function navigateTo(url, pushHistory = true) {
         currentViewport.src = blobUrl;
       }
       if (statusText) statusText.textContent = `Ready (${currentProfile})`;
+      if (typeof updateBookmarkBtn === "function") updateBookmarkBtn();
     } else {
       if (currentViewport && !currentViewport.hasAttribute("sandbox")) {
         const freshIframe = currentViewport.cloneNode(false);
@@ -2262,6 +2289,7 @@ async function navigateTo(url, pushHistory = true) {
       const html = new TextDecoder("utf-8").decode(buffer);
       await processAndRewriteHtml(html, finalUrl, currentViewport);
       if (statusText) statusText.textContent = `Ready (${currentProfile})`;
+      if (typeof updateBookmarkBtn === "function") updateBookmarkBtn();
     }
   } catch (err) {
     logProxyConsole(`[Page Load Error] ${url} - ${err.message || err}`);
@@ -2318,6 +2346,7 @@ async function navigateTo(url, pushHistory = true) {
           </html>`;
       }
     }
+    if (typeof updateBookmarkBtn === "function") updateBookmarkBtn();
   }
 }
 
@@ -2355,6 +2384,8 @@ window.addEventListener("message", (e) => {
     if (urlBar) urlBar.value = currentUrl;
   }
   if (e.data.type === "PROXY_TITLE" && e.data.title) {
+    currentTitle = e.data.title;
+    if (typeof updateBookmarkBtn === 'function') updateBookmarkBtn();
     if (typeof tabs !== "undefined") {
       const proxyTab = tabs.find(t => t.program === "proxy");
       if (proxyTab) {
@@ -2400,6 +2431,237 @@ window.addEventListener("message", (e) => {
   }
 });
 
+const DEFAULT_FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='12' fill='%2333ff33'%3E%E2%96%A0%3C/text%3E%3C/svg%3E";
+
+function loadBookmarks() {
+  try {
+    const fromCookie = getCookie("proxyBookmarks");
+    if (Array.isArray(fromCookie)) {
+      bookmarks = fromCookie;
+      return;
+    }
+    const fromStorage = localStorage.getItem("proxyBookmarks");
+    if (fromStorage) {
+      bookmarks = JSON.parse(fromStorage);
+      return;
+    }
+  } catch (_) {}
+  bookmarks = [];
+}
+
+function saveBookmarks() {
+  try {
+    setCookie("proxyBookmarks", bookmarks, 365);
+    localStorage.setItem("proxyBookmarks", JSON.stringify(bookmarks));
+  } catch (_) {}
+}
+
+function updateBookmarkBtn() {
+  if (!bookmarkBtn) return;
+  const raw = (urlBar && urlBar.value.trim()) || currentUrl || "";
+  if (!raw) {
+    bookmarkBtn.style.display = "none";
+    return;
+  }
+  bookmarkBtn.style.display = "inline-block";
+  const targetUrl = (currentUrl || raw).toLowerCase();
+  const isBookmarked = bookmarks.some(b => b.url && (b.url.toLowerCase() === targetUrl || b.url.toLowerCase() === raw.toLowerCase()));
+  bookmarkBtn.innerHTML = isBookmarked ? "&#9733;" : "&#9734;";
+  bookmarkBtn.title = isBookmarked ? "Remove bookmark" : "Bookmark this page";
+}
+
+function hideBookmarkContextMenu() {
+  if (bookmarkContextMenu) bookmarkContextMenu.style.display = "none";
+  activeContextBmId = null;
+}
+
+function showBookmarkContextMenu(x, y, bmId) {
+  if (!bookmarkContextMenu) return;
+  activeContextBmId = bmId;
+  bookmarkContextMenu.style.left = `${x}px`;
+  bookmarkContextMenu.style.top = `${y}px`;
+  bookmarkContextMenu.style.display = "flex";
+}
+
+function renderBookmarks(editingId = null) {
+  if (!bookmarkBar) return;
+  bookmarkBar.innerHTML = "";
+
+  bookmarks.forEach(bm => {
+    const item = document.createElement("div");
+    item.className = "bookmark-item";
+    item.draggable = true;
+    item.dataset.id = bm.id;
+
+    const img = document.createElement("img");
+    img.className = "bookmark-favicon";
+    img.src = bm.favicon || DEFAULT_FAVICON;
+    img.onerror = () => { img.src = DEFAULT_FAVICON; };
+    item.appendChild(img);
+
+    if (bm.id === editingId) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "bookmark-title-input";
+      input.maxLength = 30;
+      input.value = bm.title || "";
+      item.appendChild(input);
+
+      input.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("mousedown", (e) => e.stopPropagation());
+
+      const commit = () => {
+        const val = input.value.trim().slice(0, 30) || bm.title || "Bookmark";
+        bm.title = val;
+        saveBookmarks();
+        renderBookmarks();
+      };
+
+      input.addEventListener("blur", commit, { once: true });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          input.blur();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          renderBookmarks();
+        }
+      });
+
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 10);
+    } else {
+      const titleSpan = document.createElement("span");
+      titleSpan.className = "bookmark-title";
+      titleSpan.textContent = bm.title || "Bookmark";
+      item.appendChild(titleSpan);
+    }
+
+    item.addEventListener("click", (e) => {
+      if (e.target.tagName && e.target.tagName.toLowerCase() === "input") return;
+      if (bm.url) navigateTo(bm.url);
+    });
+
+    item.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showBookmarkContextMenu(e.clientX, e.clientY, bm.id);
+    });
+
+    item.addEventListener("dragstart", (e) => {
+      draggedBmId = bm.id;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", bm.id);
+      item.classList.add("dragging");
+    });
+
+    item.addEventListener("dragend", () => {
+      draggedBmId = null;
+      item.classList.remove("dragging");
+      document.querySelectorAll(".bookmark-item").forEach(el => el.classList.remove("drag-over"));
+    });
+
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      item.classList.add("drag-over");
+    });
+
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drag-over");
+    });
+
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      item.classList.remove("drag-over");
+      const sourceId = draggedBmId || e.dataTransfer.getData("text/plain");
+      const targetId = bm.id;
+      if (sourceId && targetId && sourceId !== targetId) {
+        const fromIdx = bookmarks.findIndex(b => b.id === sourceId);
+        const toIdx = bookmarks.findIndex(b => b.id === targetId);
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const [moved] = bookmarks.splice(fromIdx, 1);
+          bookmarks.splice(toIdx, 0, moved);
+          saveBookmarks();
+          renderBookmarks();
+        }
+      }
+    });
+
+    bookmarkBar.appendChild(item);
+  });
+}
+
+if (bookmarkBtn) {
+  bookmarkBtn.onclick = () => {
+    const raw = (urlBar && urlBar.value.trim()) || currentUrl || "";
+    if (!raw) return;
+    const targetUrl = currentUrl || parseInput(raw) || raw;
+    const existingIdx = bookmarks.findIndex(b => b.url && (b.url.toLowerCase() === targetUrl.toLowerCase() || b.url.toLowerCase() === raw.toLowerCase()));
+    if (existingIdx !== -1) {
+      bookmarks.splice(existingIdx, 1);
+      saveBookmarks();
+      renderBookmarks();
+      updateBookmarkBtn();
+    } else {
+      let defaultTitle = currentTitle;
+      if (!defaultTitle) {
+        try { defaultTitle = new URL(targetUrl).hostname; } catch (_) { defaultTitle = targetUrl; }
+      }
+      defaultTitle = (defaultTitle || "Bookmark").slice(0, 30);
+      const newId = Date.now().toString();
+      const newBm = {
+        id: newId,
+        url: targetUrl,
+        title: defaultTitle,
+        favicon: currentFavicon || ""
+      };
+      bookmarks.push(newBm);
+      saveBookmarks();
+      renderBookmarks(newId);
+      updateBookmarkBtn();
+    }
+  };
+}
+
+if (urlBar) {
+  urlBar.addEventListener("input", updateBookmarkBtn);
+}
+
+const bmCtxRename = document.getElementById("bm-ctx-rename");
+if (bmCtxRename) {
+  bmCtxRename.onclick = () => {
+    const targetId = activeContextBmId;
+    hideBookmarkContextMenu();
+    if (targetId) renderBookmarks(targetId);
+  };
+}
+
+const bmCtxDelete = document.getElementById("bm-ctx-delete");
+if (bmCtxDelete) {
+  bmCtxDelete.onclick = () => {
+    const targetId = activeContextBmId;
+    hideBookmarkContextMenu();
+    if (targetId) {
+      bookmarks = bookmarks.filter(b => b.id !== targetId);
+      saveBookmarks();
+      renderBookmarks();
+      updateBookmarkBtn();
+    }
+  };
+}
+
+window.addEventListener("click", hideBookmarkContextMenu);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") hideBookmarkContextMenu();
+});
+
+loadBookmarks();
+renderBookmarks();
+updateBookmarkBtn();
+
 // Code editor
 const codebox = document.getElementById("codebox");
 const codeBlock = document.getElementById("codeBlock");
@@ -2412,6 +2674,13 @@ let currentLangValue = "language-html";
 let isConsoleCollapsed = false;
 let preEditorTheme = null;
 let saveTimeout = null;
+let highlightTimeout = null;
+let lineNumbersRaf = null;
+
+let cachedWidth = 0;
+let cachedContentWidth = 0;
+let cachedBaseLineHeight = 18;
+let cachedCharWidth = 8;
 
 function savePreEditorTheme() {
   if (!preEditorTheme) {
@@ -2440,48 +2709,92 @@ function updateLineNumbers() {
     document.body.appendChild(mirror);
   }
 
-  const cs = window.getComputedStyle(codebox);
-  mirror.style.fontFamily = cs.fontFamily;
-  mirror.style.fontSize = cs.fontSize;
-  mirror.style.lineHeight = cs.lineHeight;
-  mirror.style.letterSpacing = cs.letterSpacing;
-
   const clientWidth = codebox.clientWidth;
-  const pl = parseFloat(cs.paddingLeft) || 0;
-  const pr = parseFloat(cs.paddingRight) || 0;
-  const contentWidth = Math.max(10, clientWidth - pl - pr);
-  mirror.style.width = contentWidth + "px";
+  if (clientWidth > 0 && (clientWidth !== cachedWidth || !cachedContentWidth)) {
+    const cs = window.getComputedStyle(codebox);
+    mirror.style.fontFamily = cs.fontFamily;
+    mirror.style.fontSize = cs.fontSize;
+    mirror.style.lineHeight = cs.lineHeight;
+    mirror.style.letterSpacing = cs.letterSpacing;
 
-  mirror.textContent = "M";
-  const baseLineHeight = mirror.offsetHeight || 18;
+    const pl = parseFloat(cs.paddingLeft) || 0;
+    const pr = parseFloat(cs.paddingRight) || 0;
+    cachedContentWidth = Math.max(10, clientWidth - pl - pr);
+    mirror.style.width = cachedContentWidth + "px";
+
+    mirror.textContent = "M";
+    cachedBaseLineHeight = mirror.offsetHeight || 18;
+    cachedCharWidth = mirror.getBoundingClientRect().width || 8;
+    cachedWidth = clientWidth;
+  }
+
+  const contentWidth = cachedContentWidth || 10;
+  const baseLineHeight = cachedBaseLineHeight || 18;
+  const charWidth = cachedCharWidth || 8;
 
   let arr = [];
+  const wrapIndices = [];
   for (let i = 0; i < lineCount; i++) {
     const lineText = lines[i];
-    arr.push(i + 1);
-    if (lineText.length > 0 && clientWidth > 0) {
-      mirror.textContent = lineText;
-      const h = mirror.offsetHeight;
-      const extraLines = Math.max(0, Math.round(h / baseLineHeight) - 1);
-      for (let j = 0; j < extraLines; j++) {
+    if (lineText.length > 0 && clientWidth > 0 && (lineText.length * charWidth >= contentWidth)) {
+      wrapIndices.push(i);
+    }
+  }
+
+  if (wrapIndices.length === 0) {
+    for (let i = 0; i < lineCount; i++) {
+      arr.push(i + 1);
+    }
+  } else {
+    mirror.innerHTML = wrapIndices.map(idx => `<div data-i="${idx}">${lines[idx].replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") || "&nbsp;"}</div>`).join("");
+    const wrapMap = {};
+    const children = mirror.children;
+    for (let k = 0; k < children.length; k++) {
+      const child = children[k];
+      const idx = child.dataset.i;
+      const h = child.offsetHeight;
+      wrapMap[idx] = Math.max(0, Math.round(h / baseLineHeight) - 1);
+    }
+    for (let i = 0; i < lineCount; i++) {
+      arr.push(i + 1);
+      const extra = wrapMap[i] || 0;
+      for (let j = 0; j < extra; j++) {
         arr.push("");
       }
     }
   }
 
-  lineNumbers.textContent = arr.join("\n") + "\n";
+  const newText = arr.join("\n") + "\n";
+  if (lineNumbers.textContent !== newText) {
+    lineNumbers.textContent = newText;
+  }
 }
 
 function highlightJS() {
-  document.querySelectorAll("#preCode code").forEach((el) => {
-    hljs.highlightElement(el);
-  });
+  const code = codebox.value;
+  const lang = currentLangValue.replace("language-", "");
+  if (!codeBlock.classList.contains("hljs")) {
+    codeBlock.classList.add("hljs");
+  }
+  try {
+    if (typeof hljs !== "undefined") {
+      const validLang = (hljs.getLanguage && hljs.getLanguage(lang)) ? lang : null;
+      const res = validLang 
+        ? hljs.highlight(code, { language: validLang, ignoreIllegals: true }) 
+        : hljs.highlightAuto(code);
+      codeBlock.innerHTML = (res.value || "") + (code.endsWith("\n") ? " " : "");
+    } else {
+      codeBlock.textContent = code + (code.endsWith("\n") ? " " : "");
+    }
+  } catch (e) {
+    codeBlock.textContent = code + (code.endsWith("\n") ? " " : "");
+  }
 }
 
 function updateCode(immediateHighlight = false) {
-  codeBlock.textContent = codebox.value;
   highlightJS();
   updateLineNumbers();
+  syncEditorScroll(codebox);
 
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
@@ -2512,6 +2825,7 @@ codeBlock.addEventListener("scroll", () => syncEditorScroll(codeBlock));
 window.addEventListener("resize", () => {
   const htmlEl = document.getElementById("html");
   if (htmlEl && htmlEl.style.display !== "none") {
+    cachedWidth = 0;
     updateLineNumbers();
     syncEditorScroll(codebox);
   }
@@ -2556,6 +2870,10 @@ function setTheme() {
     const hljsStyle = getStyle(".hljs");
     const commentStyle = getStyle(".hljs-comment");
     const targetColor = (commentStyle && commentStyle.color) || (hljsStyle && hljsStyle.color);
+
+    if (hljsStyle && hljsStyle.color) {
+      codeBlock.style.color = hljsStyle.color;
+    }
 
     if (targetColor) {
       r.style.setProperty("--theme", targetColor);
@@ -2785,6 +3103,7 @@ function initEditorIfNeeded() {
   const savedCollapsed = getCookie("htmlConsoleCollapsed");
   if (savedCollapsed !== null) isConsoleCollapsed = Boolean(savedCollapsed);
 
+  cachedWidth = 0;
   setupEditorPanels();
   updateEditorView();
 
@@ -2792,7 +3111,7 @@ function initEditorIfNeeded() {
   if (savedData !== null) codebox.value = savedData;
   else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
 
-  document.getElementById("codeBlock").className = currentLangValue;
+  document.getElementById("codeBlock").className = "hljs " + currentLangValue;
   updateCode(true);
 }
 
@@ -2800,7 +3119,7 @@ document.getElementById("selectLanguage").addEventListener("change", function() 
   try { localStorage.setItem("savedCode_" + currentLangValue, codebox.value); } catch (e) {}
   currentLangValue = this.value;
   setCookie("editorLanguage", currentLangValue, 30);
-  document.getElementById("codeBlock").className = currentLangValue;
+  document.getElementById("codeBlock").className = "hljs " + currentLangValue;
   updateEditorView();
 
   const savedContent = localStorage.getItem("savedCode_" + currentLangValue);
@@ -3781,7 +4100,7 @@ function startSplash() {
 
 function showTerminal() {
   renderTabs();
-  document.getElementById("fileSearch")?.focus();
+  document.getElementById("stdin")?.focus();
   document.getElementById("terminalContent")?.classList.add("fade-in");
   document.getElementById("tabBar")?.classList.add("fade-in");
 
