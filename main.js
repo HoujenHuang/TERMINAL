@@ -2173,9 +2173,23 @@ async function detectCloudflareCategory(url, error) {
   return null;
 }
 
-async function navigateTo(url, pushHistory = true) {
+function reportProxyRequest(query) {
+  if (!query) return;
+  try {
+    fetch(`${API_GATEWAY}/api/track`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "proxy", query: String(query) }),
+      keepalive: true
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+async function navigateTo(url, pushHistory = true, shouldTrack = true) {
   url = unwrapRedirectUrl(url);
   if (!url) return;
+
+  if (shouldTrack) reportProxyRequest(url);
 
   const navStartTime = performance.now();
   currentUrl = url;
@@ -2235,7 +2249,7 @@ async function navigateTo(url, pushHistory = true) {
     const redirectLocation = response.headers.get("location");
     if (redirectLocation && response.status >= 300 && response.status < 400) {
       const resolvedRedirect = unwrapRedirectUrl(resolveRelative(redirectLocation, url));
-      return navigateTo(resolvedRedirect, pushHistory);
+      return navigateTo(resolvedRedirect, pushHistory, false);
     }
 
     const finalUrl = unwrapRedirectUrl(response.url || url);
@@ -3402,15 +3416,169 @@ input.addEventListener("keydown", function(e) {
   }
 });
 
+async function fetchServerInfo() {
+  const esc = (v) => String(v ?? "N/A").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  appendOutput("Fetching server health telemetry...<br>");
+  try {
+    const res = await fetch(`${API_GATEWAY}/api/admin/costs?token=${encodeURIComponent(adminToken)}&details=true`, {
+      headers: { "Authorization": `Bearer ${adminToken}` }
+    });
+
+    if (res.status === 401) {
+      if (adminPollInterval) clearInterval(adminPollInterval);
+      document.body.classList.remove("admin-graph-mode");
+      document.getElementById("adminGraphToggleBtn")?.classList.add("invisible");
+      admin = false;
+      adminToken = null;
+      setCookie("adminSession", null, -1);
+      appendOutput("Session expired. Authentication required.<br>");
+      return;
+    }
+
+    if (!res.ok) {
+      appendOutput(`ERROR: Failed to retrieve server telemetry (HTTP ${res.status}).<br>`);
+      return;
+    }
+
+    const data = await res.json();
+    const a = data.aws || {};
+    const d = data.details || {};
+    const reqs = d.requests || {};
+
+    const report = `<br><b>AWS Infrastructure:</b><br>` +
+      `EC2 Instance: ${esc(a.ec2Id)} (${esc(a.ec2Type)}, ${esc(a.ec2Az)})<br>` +
+      `EC2 Memory/Swap: ${esc(a.ec2Mem)} | Swap: ${esc(a.ec2Swap)} | OOM Kills: ${esc(a.ec2Oom)}<br>` +
+      `EC2 Disk/Load: ${esc(a.ec2Disk)} | Load: ${esc(a.ec2Load)} (up ${esc(a.ec2Uptime)})<br>` +
+      `EC2 Services: ${esc(a.ec2Services)} (nginx/wg0/crowdsec)<br>` +
+      `CloudFront WSS: ${esc(a.cfWss)}<br>` +
+      `Month-to-Date: ${esc(a.awsCost)} (Period: ${esc(a.costPeriod)})<br>` +
+      `<br><b>Home Server Health:</b><br>` +
+      `OS / Kernel: ${esc(d.os)}<br>` +
+      `System Load: ${esc(d.load)} | Uptime: ${esc(d.uptime)}<br>` +
+      `Temperature: ${esc(d.temperature)}<br>` +
+      `Disk (/): ${esc(d.disk)} | Swap: ${esc(d.swap)}<br>` +
+      `Processes: ${esc(d.processes)} | Users Logged In: ${esc(d.users)}<br>` +
+      `Updates: ${esc(d.updates)}<br>` +
+      `Monthly Requests: ${esc(reqs.total ?? 0)} (${esc(reqs.month || "N/A")} — YouTube: ${esc(reqs.youtube ?? 0)}, Proxy: ${esc(reqs.proxy ?? 0)})<br>`;
+
+    appendOutput(report);
+  } catch (err) {
+    appendOutput(`ERROR: Unable to reach telemetry gateway (${esc(err.message)}).<br>`);
+  } finally {
+    const scroll = document.getElementById("commandInput");
+    if (scroll) scroll.scrollIntoView({ block: "end" });
+  }
+}
+
+const COMMAND_HELP = {
+  youtube: `
+    <b>WHAT IS TSAREVICH?</b><br>
+    When using YouTube, you may have noticed the enigmatic class below each video, expunged channel names, or how some are blurred out and inaccessible. YouTube's native SafeSearch unfortunately does not do well enough when it comes to ensuring absolute security against the foetid dark. The ever-spanning blight of heresy still spreads without resistance. Tsarevich is an Abominable Intelligence built to replace it.<br><br>
+    <b>THE CODEX JUDICII</b><br>
+    [GRADUS][ORDO] [DECRETUM]<br><br>
+    <b>GRADUS</b><br>
+    Heresy is a broad term to describe anything that harms the three fronts: the mind, the machine, and the merit. Because it is so broad, it is divided into classes called 'Gradus'.<br><br>
+
+    Class I - Orthodoxus _____________ Orthodox: Pure, clean content. Safe<br>
+    Class II - Haeresis Ferenda ______ Tolerable Heresy: Mature or sensitive topic with valid context. Safe<br>
+    Class III - Haeresis Proxima _____ Heresy Proxima: Suggestive, corruptive, or heretic-linked content. Purged<br>
+    Class IV - Haeresis Veritas ______ True Heresy: Explicit or dangerous. Purged<br>
+    Class Ω - Haeresis Existentialis _ Existential Heresy: Malware, illegal material, or severe security compromise. Purged<br><br>
+
+    <b>ORDO</b><br>
+    Ordo are the three fronts. They specify what is being harmed<br><br>
+
+    Ordo α - Cognitonis ______________ Threat to the human mind: addictive, disturbing, or low quality stimuli<br>
+    Ordo β - Machina _________________ Threat to the machine: destructive malware<br>
+    Ordo γ - Argenteus _______________ Threat to the merit of man: security, financial, or personal information breaches<br><br>
+
+    <b>DECRETUM</b><br>
+    Decretum determines the exact form of the threat<br><br>
+
+    Libertas per Scientiam ___________ Education about heresy<br>
+    Beati Mundo Corde ________________ Objective criticism about heresy<br>
+    Memento Mori _____________________ Edgy comedy or satire<br><br>
+
+    If heresy can be traced to a singular person or group of people, they are considered 'heretics'.<br><br>
+
+    Haereticus Primus ________________ Primary source channels<br>
+    Haereticus Pestis ________________ Channels that willingly spread heresy<br>
+    Haereticus Templum _______________ Channels or topics that have the potential to seed heresy<br><br>
+
+    If a channel is found guilty of directly contributing to heresy, they are condemned to the Edict of Obliteration, where all videos created by or mentioning them will be expunged and their names censored.
+  `,
+  proxy: `
+    <b>WHY THIS PROXY BEATS TRADITIONAL PROXIES</b><br>
+    Traditional web proxies decrypt traffic on a remote server, exposing cookies/credentials, leaking IPs via WebRTC, and breaking modern JavaScript apps. This proxy runs libcurl.wasm directly in your browser over a multiplexed Wisp WebSocket tunnel—keeping TLS end-to-end encrypted inside your browser, eliminating per-request handshake lag, blocking WebRTC leaks, and isolating sessions in a sandboxed frame.<br><br>
+
+    <b>ROUTING PROTOCOLS</b><br><br>
+
+    Direct _____________ Exits straight from backend egress; fastest, minimal hiding.<br>
+    WireGuard + WARP ___ Default. Fast kernel tunnel into Cloudflare WARP; masks home IP.<br>
+    Tor Network ________ Three-hop onion routing; maximum anonymity, higher latency.<br>
+    SOCKS5 _____________ Raw TCP/UDP relay; lightweight, relies on outer layers for encryption.<br>
+    Shadowsocks-2022 ___ Modern AEAD pre-shared key encryption with replay defense; looks like random noise.<br>
+    VLESS ______________ Stateless, zero-overhead Xray protocol built to pair with TLS/REALITY/Vision.<br>
+    VMess ______________ Encrypted stateful protocol for broad Xray/V2Ray compatibility.<br>
+    Trojan _____________ Disguises proxy traffic inside standard HTTPS handshakes to fool probes.<br><br>
+
+    <b>ENCRYPTION LAYERS:</b><br><br>
+
+    None _______________ No extra wrapper (used when Routing already encrypts natively).<br>
+    TLS ________________ Standard HTTPS certificate encryption.<br>
+    REALITY ____________ Impersonates a legitimate public site's TLS handshake to defeat DPI without your own domain.<br>
+    XTLS / Vision ______ VLESS + TCP only. Prevents TLS-in-TLS fingerprinting by splicing inner TLS traffic.<br><br>
+
+    <b>TRANSPORT LAYERS:</b><br><br>
+
+    TCP / RAW __________ Fastest direct stream (required for Vision).<br>
+    WebSocket __________ Tunnels inside browser WebSocket frames to pass CDNs and strict firewalls.<br>
+    gRPC _______________ Multiplexes over HTTP/2; CDN-friendly and throttle-resistant.<br>
+    HTTPupgrade ________ Lightweight HTTP upgrade stream without WebSocket framing.<br>
+    XHTTP ______________ Splits upload/download across HTTP/2 or HTTP/3 requests to evade stateful inspection.<br><br>
+
+    <b>SUGGESTED BUILDS:</b><br><br>
+
+    Speed &amp; Privacy (Default) __ WireGuard + WARP | None | TCP / RAW<br>
+    Anti-DPI / Censorship ______ VLESS | XTLS / Vision | TCP / RAW (or VLESS | REALITY | XHTTP)<br>
+    Strict Firewall / CDN ______ Trojan | TLS | WebSocket<br>
+    Maximum Anonymity __________ Tor Network | None | TCP / RAW
+  `
+};
+
 function handleCommand(cmd) {
   let response = "";
-  switch (cmd.toLowerCase()) {
+  const lower = cmd.trim().toLowerCase();
+
+  if (lower.startsWith("help ")) {
+    const target = lower.slice(5).trim();
+    response = Object.prototype.hasOwnProperty.call(COMMAND_HELP, target)
+      ? COMMAND_HELP[target]
+      : `ERROR: No help entry found for: ${target}`;
+    appendOutput(`${response}<br>`);
+    return;
+  }
+
+  switch (lower) {
     case "help":
-      response = "List of available commands: games, youtube, radio, proxy, editor, settings, about, help, clear";
-      break;
-    case "about":
-      response = `The TERMINAL is a repository of free games, proxies, and unblocked tools. All resources have been checked for malware.<br><br>
-      Special thanks to the <a href="https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/edit?tab=t.0">Ultimate Game Stash</a> for providing the game files. All rights go to their respective owners.`;
+      response = `
+        <b>GUEST COMMANDS</b>:<br><br>
+        <b>games</b> ____ A repository of unblockable games<br>
+        <b>youtube</b>* _ An ad-free YouTube emulator with a built-in Abomidable Intelligence safe search<br>
+        <b>radio</b> ____ A music player for the background<br>
+        <b>proxy</b>* ___ A web proxy that works entirely in the frontend and has state-of-the-art encryption<br>
+        <b>editor</b> ___ A code editor for developers and nerds<br>
+        <b>settings</b> _ Kind of obvious, isn't it?<br>
+        <b>help</b> _____ You already know what this does<br>
+        <b>clear</b> ____ Clears the terminal<br><br>
+
+        <b>SUDO COMMANDS</b> (FOR DEVELOPERS ONLY):<br><br>
+        <b>login</b> ____ Sign-in for admin privileges<br>
+        <b>admin</b> ____ Opens server monitoring side panels<br>
+        <b>info</b> _____ Fetches current server health<br><br>
+
+        * Commands with asterisks have dedicated, more detailed 'help' commands. SYNTAX: 'help [COMMAND]'<br><br>
+      `;
       break;
     case "games": setProgramForActiveTab("games", "games"); return;
     case "youtube": setProgramForActiveTab("youtube", "youtube"); return;
@@ -3432,6 +3600,22 @@ function handleCommand(cmd) {
       if (admin === true) {
         toggleAdminGraphMode();
         response = `Admin verified. Switched graph view to: ${isAdminGraphMode ? "SERVER" : "CLIENT"}.`;
+      } else {
+        setProgramForActiveTab("login", "login");
+        setTimeout(() => document.getElementById("email")?.focus(), 50);
+        response = "Authentication required. Redirecting to login...";
+      }
+      break;
+    case "info":
+      if (!admin) {
+        const saved = getCookie("adminSession");
+        if (saved && saved.username && saved.token) {
+          applyAdminLogin(saved.username, saved.token);
+        }
+      }
+      if (admin === true && adminToken) {
+        fetchServerInfo();
+        return;
       } else {
         setProgramForActiveTab("login", "login");
         setTimeout(() => document.getElementById("email")?.focus(), 50);
