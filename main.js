@@ -3416,12 +3416,101 @@ input.addEventListener("keydown", function(e) {
   }
 });
 
+function buildSuperMap(pingStates, tooltips = {}) {
+  const clientOk = Boolean(pingStates.client);
+  const cfOk = clientOk && Boolean(pingStates.cloudfront);
+  const ec2Ok = cfOk && Boolean(pingStates.ec2);
+  const homeOk = ec2Ok && Boolean(pingStates.home);
+
+  const boxes = [
+    ["Home Server", "pm2, wisp, youtube, tsarevich", homeOk, tooltips.home || (homeOk ? "Home Server: Online" : "Home Server: Unresponsive")],
+    ["EC2", "nginx, wg0", ec2Ok, tooltips.ec2 || (ec2Ok ? "EC2: Online" : "EC2: Unresponsive")],
+    ["CloudFront", "cdn, wss", cfOk, tooltips.cloudfront || (cfOk ? "CloudFront: Online" : "CloudFront: Unresponsive")],
+    ["Client", "libcurl, ui", clientOk, tooltips.client || (clientOk ? "Client: Online" : "Client: Offline")]
+  ];
+  const links = ["wg0", "crowdsec, tls", "https, wss"];
+
+  const escAttr = (v) => String(v ?? "").replace(/[&"<>]/g, c => ({ "&": "&amp;", "\"": "&quot;", "<": "&lt;", ">": "&gt;" }[c]));
+
+  const boxRows = boxes.map(([n1, n2], idx) => {
+    const inner = Math.max(n1.length, n2.length);
+    const leftCh = idx > 0 ? "┤" : "│";
+    const rightCh = idx < boxes.length - 1 ? "├" : "│";
+    return [
+      "┌" + "─".repeat(inner) + "┐",
+      leftCh + n1.padEnd(inner, " ") + rightCh,
+      "│" + n2.padEnd(inner, " ") + "│",
+      "└" + "─".repeat(inner) + "┘"
+    ];
+  });
+
+  const linkRows = links.map(lbl => {
+    const lw = lbl.length + 2;
+    return [
+      " " + lbl + " ",
+      "─".repeat(lw),
+      " ".repeat(lw),
+      " ".repeat(lw)
+    ];
+  });
+
+  const lines = [];
+  for (let r = 0; r < 4; r++) {
+    let row = "";
+    for (let i = 0; i < boxes.length; i++) {
+      const ok = boxes[i][2];
+      const tip = boxes[i][3];
+      row += `<span title="${escAttr(tip)}" style="opacity:${ok ? "1" : "0.5"};">${boxRows[i][r]}</span>`;
+      if (i < links.length) {
+        row += linkRows[i][r];
+      }
+    }
+    lines.push(row);
+  }
+
+  return `<div style="white-space: pre; line-height: 1.15; overflow-x: auto; margin: 8px 0;">${lines.join("\n")}</div>`;
+}
+
+async function probeChainFromClient(httpStatus, serverHeader, bodyText, elapsedMs, err) {
+  const clientOk = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+  if (!clientOk) {
+    return { client: false, cloudfront: false, ec2: false, home: false };
+  }
+
+  if (httpStatus) {
+    const hdr = String(serverHeader || "").toLowerCase();
+    const body = String(bodyText || "").toLowerCase();
+    const isNginx = hdr.includes("nginx") || body.includes("nginx");
+    const isCfError = body.includes("cloudfront") || body.includes("could not be satisfied");
+    const ec2Ok = isNginx || (httpStatus === 502 && !isCfError);
+    return { client: true, cloudfront: true, ec2: ec2Ok, home: false };
+  }
+
+  let cfOk = false;
+  try {
+    await fetch(`${API_GATEWAY}/api/health`, {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000)
+    });
+    cfOk = true;
+  } catch (_) {
+    cfOk = false;
+  }
+
+  const timedOut = (err && (err.name === "TimeoutError" || err.name === "AbortError")) || elapsedMs >= 4500;
+  const ec2Ok = cfOk && !timedOut;
+  return { client: true, cloudfront: cfOk, ec2: ec2Ok, home: false };
+}
+
 async function fetchServerInfo() {
   const esc = (v) => String(v ?? "N/A").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   appendOutput("Fetching server health telemetry...<br>");
+  const startMs = performance.now();
   try {
     const res = await fetch(`${API_GATEWAY}/api/admin/costs?token=${encodeURIComponent(adminToken)}&details=true`, {
-      headers: { "Authorization": `Bearer ${adminToken}` }
+      headers: { "Authorization": `Bearer ${adminToken}` },
+      signal: AbortSignal.timeout(10000)
     });
 
     if (res.status === 401) {
@@ -3436,34 +3525,80 @@ async function fetchServerInfo() {
     }
 
     if (!res.ok) {
-      appendOutput(`ERROR: Failed to retrieve server telemetry (HTTP ${res.status}).<br>`);
+      const serverHdr = res.headers.get("server") || "";
+      const bodyText = await res.text().catch(() => "");
+      const pingStates = await probeChainFromClient(res.status, serverHdr, bodyText, performance.now() - startMs, null);
+      const mapHtml = buildSuperMap(pingStates, {
+        home: `Home Server: Offline (HTTP ${res.status})`,
+        ec2: `EC2: ${pingStates.ec2 ? "Online" : "Unresponsive"}`,
+        cloudfront: `CloudFront: ${pingStates.cloudfront ? "Online" : "Unresponsive"}`,
+        client: `Client: ${pingStates.client ? "Online" : "Offline"}`
+      });
+      appendOutput(
+        `<br><b>Infrastructure Topology:</b><br>` +
+        mapHtml +
+        `<br><b>AWS Infrastructure (EC2):</b><br>Stats unavailable (Gateway returned HTTP ${res.status})<br>` +
+        `<br><b>Home Server Health:</b><br>Stats unavailable (Home Server / pm2 offline)<br>`
+      );
       return;
     }
 
     const data = await res.json();
+    const s = data.system || {};
     const a = data.aws || {};
     const d = data.details || {};
     const reqs = d.requests || {};
+    const ping = d.ping || {};
 
-    const report = `<br><b>AWS Infrastructure:</b><br>` +
-      `EC2 Instance: ${esc(a.ec2Id)} (${esc(a.ec2Type)}, ${esc(a.ec2Az)})<br>` +
-      `EC2 Memory/Swap: ${esc(a.ec2Mem)} | Swap: ${esc(a.ec2Swap)} | OOM Kills: ${esc(a.ec2Oom)}<br>` +
-      `EC2 Disk/Load: ${esc(a.ec2Disk)} | Load: ${esc(a.ec2Load)} (up ${esc(a.ec2Uptime)})<br>` +
-      `EC2 Services: ${esc(a.ec2Services)} (nginx/wg0/crowdsec)<br>` +
-      `CloudFront WSS: ${esc(a.cfWss)}<br>` +
-      `Month-to-Date: ${esc(a.awsCost)} (Period: ${esc(a.costPeriod)})<br>` +
+    const pingStates = {
+      home: ping.home !== undefined ? ping.home : String(s.pm2 || "").startsWith("online"),
+      ec2: ping.ec2 !== undefined ? ping.ec2 : a.ec2State === "running",
+      cloudfront: ping.cloudfront !== undefined ? ping.cloudfront : a.cfStatus === "Deployed",
+      client: typeof navigator === "undefined" ? true : navigator.onLine !== false
+    };
+
+    const tooltips = {
+      home: `Home Server: ${s.pm2 || "unknown"} | wg0: ${s.wireguard || "unknown"}`,
+      ec2: `EC2: ${a.ec2State || "unknown"} | services: ${a.ec2Services || "N/A"}`,
+      cloudfront: `CloudFront: ${a.cfStatus || "unknown"}`,
+      client: `Client: ${pingStates.client ? "Online" : "Offline"}`
+    };
+
+    const ec2TempLine = (a.ec2Temp && a.ec2Temp !== "N/A") ? `Temperature: ${esc(a.ec2Temp)}<br>` : "";
+
+    const report = `<br><b>Infrastructure Topology:</b><br>` +
+      buildSuperMap(pingStates, tooltips) +
+      `<br><b>AWS Infrastructure (EC2):</b><br>` +
+      `System load: ${esc(a.ec2Load)}<br>` +
+      `Usage of /: ${esc(a.ec2Disk)}<br>` +
+      `Memory usage: ${esc(a.ec2Mem)} | Swap usage: ${esc(a.ec2Swap)}<br>` +
+      ec2TempLine +
+      `Processes: ${esc(a.ec2Processes)}<br>` +
+      `Costs (${esc(a.costPeriod)}): Total: ${esc(a.costTotal)} | Unblended: ${esc(a.costUnblended)} | Estimated: ${esc(a.costEstimated)}<br>` +
       `<br><b>Home Server Health:</b><br>` +
-      `OS / Kernel: ${esc(d.os)}<br>` +
-      `System Load: ${esc(d.load)} | Uptime: ${esc(d.uptime)}<br>` +
+      `System load: ${esc(d.load)}<br>` +
+      `Usage of /: ${esc(d.disk)}<br>` +
+      `Memory usage: ${esc(d.mem)} | Swap usage: ${esc(d.swap)}<br>` +
       `Temperature: ${esc(d.temperature)}<br>` +
-      `Disk (/): ${esc(d.disk)} | Swap: ${esc(d.swap)}<br>` +
-      `Processes: ${esc(d.processes)} | Users Logged In: ${esc(d.users)}<br>` +
+      `Processes: ${esc(d.processes)}<br>` +
       `Updates: ${esc(d.updates)}<br>` +
-      `Monthly Requests: ${esc(reqs.total ?? 0)} (${esc(reqs.month || "N/A")} — YouTube: ${esc(reqs.youtube ?? 0)}, Proxy: ${esc(reqs.proxy ?? 0)})<br>`;
+      `Requests (${esc(reqs.month || "N/A")}): Today: ${esc(reqs.todayTotal ?? 0)} (YouTube: ${esc(reqs.todayYoutube ?? 0)}, Proxy: ${esc(reqs.todayProxy ?? 0)}) | Month: ${esc(reqs.total ?? 0)} (YouTube: ${esc(reqs.youtube ?? 0)}, Proxy: ${esc(reqs.proxy ?? 0)})<br>`;
 
     appendOutput(report);
   } catch (err) {
-    appendOutput(`ERROR: Unable to reach telemetry gateway (${esc(err.message)}).<br>`);
+    const pingStates = await probeChainFromClient(null, "", "", performance.now() - startMs, err);
+    const mapHtml = buildSuperMap(pingStates, {
+      home: `Home Server: Unreachable (${err.message})`,
+      ec2: `EC2: ${pingStates.ec2 ? "Online" : "Unresponsive"}`,
+      cloudfront: `CloudFront: ${pingStates.cloudfront ? "Online" : "Unresponsive"}`,
+      client: `Client: ${pingStates.client ? "Online" : "Offline"}`
+    });
+    appendOutput(
+      `<br><b>Infrastructure Topology:</b><br>` +
+      mapHtml +
+      `<br><b>AWS Infrastructure (EC2):</b><br>Stats unavailable (${esc(err.message)})<br>` +
+      `<br><b>Home Server Health:</b><br>Stats unavailable (Home Server / pm2 unreachable)<br>`
+    );
   } finally {
     const scroll = document.getElementById("commandInput");
     if (scroll) scroll.scrollIntoView({ block: "end" });
@@ -3486,7 +3621,7 @@ const COMMAND_HELP = {
     Class Ω - Haeresis Existentialis _ Existential Heresy: Malware, illegal material, or severe security compromise. Purged<br><br>
 
     <b>ORDO</b><br>
-    Ordo are the three fronts. They specify what is being harmed<br><br>
+    Ordo are the three fronts. They specify what is being harmed.<br><br>
 
     Ordo α - Cognitonis ______________ Threat to the human mind: addictive, disturbing, or low quality stimuli<br>
     Ordo β - Machina _________________ Threat to the machine: destructive malware<br>
@@ -3513,29 +3648,29 @@ const COMMAND_HELP = {
 
     <b>ROUTING PROTOCOLS</b><br><br>
 
-    Direct _____________ Exits straight from backend egress; fastest, minimal hiding.<br>
-    WireGuard + WARP ___ Default. Fast kernel tunnel into Cloudflare WARP; masks home IP.<br>
-    Tor Network ________ Three-hop onion routing; maximum anonymity, higher latency.<br>
-    SOCKS5 _____________ Raw TCP/UDP relay; lightweight, relies on outer layers for encryption.<br>
-    Shadowsocks-2022 ___ Modern AEAD pre-shared key encryption with replay defense; looks like random noise.<br>
-    VLESS ______________ Stateless, zero-overhead Xray protocol built to pair with TLS/REALITY/Vision.<br>
-    VMess ______________ Encrypted stateful protocol for broad Xray/V2Ray compatibility.<br>
-    Trojan _____________ Disguises proxy traffic inside standard HTTPS handshakes to fool probes.<br><br>
+    Direct _____________ Exits straight from backend egress; fastest, minimal hiding<br>
+    WireGuard + WARP ___ Default. Fast kernel tunnel into Cloudflare WARP; masks home IP<br>
+    Tor Network ________ Three-hop onion routing; maximum anonymity, higher latency<br>
+    SOCKS5 _____________ Raw TCP/UDP relay; lightweight, relies on outer layers for encryption<br>
+    Shadowsocks-2022 ___ Modern AEAD pre-shared key encryption with replay defense; looks like random noise<br>
+    VLESS ______________ Stateless, zero-overhead Xray protocol built to pair with TLS/REALITY/Vision<br>
+    VMess ______________ Encrypted stateful protocol for broad Xray/V2Ray compatibility<br>
+    Trojan _____________ Disguises proxy traffic inside standard HTTPS handshakes to fool probes<br><br>
 
     <b>ENCRYPTION LAYERS:</b><br><br>
 
-    None _______________ No extra wrapper (used when Routing already encrypts natively).<br>
-    TLS ________________ Standard HTTPS certificate encryption.<br>
-    REALITY ____________ Impersonates a legitimate public site's TLS handshake to defeat DPI without your own domain.<br>
-    XTLS / Vision ______ VLESS + TCP only. Prevents TLS-in-TLS fingerprinting by splicing inner TLS traffic.<br><br>
+    None _______________ No extra wrapper (used when Routing already encrypts natively)<br>
+    TLS ________________ Standard HTTPS certificate encryption<br>
+    REALITY ____________ Impersonates a legitimate public site's TLS handshake to defeat DPI without your own domain<br>
+    XTLS / Vision ______ VLESS + TCP only. Prevents TLS-in-TLS fingerprinting by splicing inner TLS traffic<br><br>
 
     <b>TRANSPORT LAYERS:</b><br><br>
 
-    TCP / RAW __________ Fastest direct stream (required for Vision).<br>
-    WebSocket __________ Tunnels inside browser WebSocket frames to pass CDNs and strict firewalls.<br>
-    gRPC _______________ Multiplexes over HTTP/2; CDN-friendly and throttle-resistant.<br>
-    HTTPupgrade ________ Lightweight HTTP upgrade stream without WebSocket framing.<br>
-    XHTTP ______________ Splits upload/download across HTTP/2 or HTTP/3 requests to evade stateful inspection.<br><br>
+    TCP / RAW __________ Fastest direct stream (required for Vision)<br>
+    WebSocket __________ Tunnels inside browser WebSocket frames to pass CDNs and strict firewalls<br>
+    gRPC _______________ Multiplexes over HTTP/2; CDN-friendly and throttle-resistant<br>
+    HTTPupgrade ________ Lightweight HTTP upgrade stream without WebSocket framing<br>
+    XHTTP ______________ Splits upload/download across HTTP/2 or HTTP/3 requests to evade stateful inspection<br><br>
 
     <b>SUGGESTED BUILDS:</b><br><br>
 
@@ -3807,11 +3942,25 @@ function updateTitleDisplay(title) {
 const RATE_INPUT_1M = 0.0375;
 const RATE_OUTPUT_1M = 0.1500;
 const safetySettings = [
-  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "OFF" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "OFF" },
+  { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "OFF" }
 ];
+const tsarevichCache = new Map();
+
+function postYoutubeStatus(message, reset = false) {
+  const sText = document.getElementById("youtubeStatus");
+  if (!sText) return;
+  if (reset) {
+    sText.innerHTML = "";
+    sText.style.color = "";
+  }
+  const entry = document.createElement("div");
+  entry.textContent = message;
+  sText.appendChild(entry);
+}
 
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -3936,30 +4085,48 @@ function edictOfObliteration(uiItems) {
   return uiItems;
 }
 
-async function purgeHeresy(videos, query) {
+async function purgeHeresy(videos, query, canBisect = true) {
   const expectedIds = videos.map(v => (v.id.videoId || v.id));
+  const queryKey = String(query || "").trim().toLowerCase();
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
-  let templateStr = "[\n";
-  for (let i = 0; i < videos.length; i++) {
-    const vidId = videos[i].id.videoId || videos[i].id;
-    templateStr += `  {"i":"${vidId}","c":"code"}${i < videos.length - 1 ? ',' : ''}\n`;
-  }
-  templateStr += "]";
-
-  let metadataString = "\n";
-  for (let i = 0; i < videos.length; i++) {
-    const v = videos[i];
+  const cachedMap = new Map();
+  const uncachedVideos = [];
+  for (const v of videos) {
     const vidId = v.id.videoId || v.id;
-    const safeDesc = v.snippet.description 
-      ? v.snippet.description.replace(/[\n\r"]/g, ' ').replace(/\\/g, '/').substring(0, 220) 
+    const cacheKey = `${queryKey}::${vidId}`;
+    if (tsarevichCache.has(cacheKey)) {
+      cachedMap.set(vidId, tsarevichCache.get(cacheKey));
+    } else {
+      uncachedVideos.push(v);
+    }
+  }
+
+  if (cachedMap.size > 0) {
+    postYoutubeStatus(`[Tsarevich] Cache hit: ${cachedMap.size} verified, ${uncachedVideos.length} queued.`);
+  }
+
+  if (uncachedVideos.length === 0) {
+    return {
+      assessments: expectedIds.map(id => cachedMap.get(id)),
+      usage: { input: 0, output: 0 }
+    };
+  }
+
+  const uncachedIds = uncachedVideos.map(v => (v.id.videoId || v.id));
+  let metadataString = "\n";
+  for (let i = 0; i < uncachedVideos.length; i++) {
+    const v = uncachedVideos[i];
+    const vidId = v.id.videoId || v.id;
+    const safeDesc = v.snippet.description
+      ? v.snippet.description.replace(/[\n\r"]/g, ' ').replace(/\\/g, '/').substring(0, 120)
       : "";
     metadataString += `[${i + 1}] ID:${vidId} | CH:${v.snippet.channelTitle} | T:${v.snippet.title} | D:${safeDesc}\n`;
   }
 
   const parts = [{
-    text: `PURPOSE: Audit videos for heresy. Return ONLY the compressed JSON code for each video.
+    text: `PURPOSE: Audit videos for heresy. Return ONLY the compressed JSON array matching the schema.
 
 SEARCH QUERY: "${query}"
 
@@ -4007,23 +4174,21 @@ EXAMPLES:
   - Documentary about animator -> "2a1"
   - Explicit pornography -> "4a1"
 
-TEMPLATE:
-${templateStr}
-
 METADATA LIST:
 ${metadataString}`
   }];
 
   let attempts = 0;
-  const maxAttempts = 2;
+  const maxAttempts = 3;
 
   while (attempts < maxAttempts) {
     attempts++;
+    postYoutubeStatus(`[Tsarevich] Auditing ${uncachedVideos.length} records (attempt ${attempts}/${maxAttempts})...`);
     try {
       const res = await fetch(`${API_GATEWAY}/api/gemini`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(22000),
         body: JSON.stringify({
           contents: [{ parts }],
           safetySettings: safetySettings,
@@ -4032,7 +4197,7 @@ ${metadataString}`
             temperature: 0.1,
             responseSchema: {
               type: "ARRAY",
-              description: `List of exactly ${videos.length} compressed evaluations.`,
+              description: `List of exactly ${uncachedVideos.length} compressed evaluations.`,
               items: {
                 type: "OBJECT",
                 properties: {
@@ -4047,14 +4212,21 @@ ${metadataString}`
       });
 
       if (res.status === 429) {
+        const retryAfterSec = parseInt(res.headers.get("retry-after") || "0", 10);
+        const backoffMs = retryAfterSec > 0 ? Math.min(retryAfterSec * 1000, 6000) : 1500 * attempts;
+        postYoutubeStatus(`[Tsarevich] Rate limit (HTTP 429) on attempt ${attempts}/${maxAttempts}.`);
         if (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 1200));
+          postYoutubeStatus(`[Tsarevich] Backing off ${backoffMs}ms before retry...`);
+          await new Promise(r => setTimeout(r, backoffMs));
           continue;
         }
-        throw new Error("Rate limit");
+        throw new Error("Rate limit (HTTP 429)");
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        postYoutubeStatus(`[Tsarevich] Gateway returned HTTP ${res.status} on attempt ${attempts}/${maxAttempts}.`);
+        throw new Error(`HTTP ${res.status}`);
+      }
 
       const data = await res.json();
       if (data.usageMetadata) {
@@ -4062,9 +4234,58 @@ ${metadataString}`
         totalOutputTokens += data.usageMetadata.candidatesTokenCount || 0;
       }
 
-      if (data.candidates && data.candidates[0].finishReason === "SAFETY") {
+      if (data.promptFeedback && data.promptFeedback.blockReason) {
+        postYoutubeStatus(`[Tsarevich] Prompt blocked (${data.promptFeedback.blockReason}).`);
+        if (canBisect && uncachedVideos.length > 1) {
+          postYoutubeStatus(`[Tsarevich] Bisecting batch (${uncachedVideos.length}) to isolate blocked record...`);
+          const mid = Math.ceil(uncachedVideos.length / 2);
+          const [left, right] = await Promise.all([
+            purgeHeresy(uncachedVideos.slice(0, mid), query, false),
+            purgeHeresy(uncachedVideos.slice(mid), query, false)
+          ]);
+          const mergedMap = new Map(cachedMap);
+          left.assessments.forEach(a => mergedMap.set(a.id, a));
+          right.assessments.forEach(a => mergedMap.set(a.id, a));
+          return {
+            assessments: expectedIds.map(id => mergedMap.get(id)),
+            usage: {
+              input: totalInputTokens + left.usage.input + right.usage.input,
+              output: totalOutputTokens + left.usage.output + right.usage.output
+            }
+          };
+        }
+        postYoutubeStatus(`[Tsarevich] FAIL-DEADLY ACTIVATED (${data.promptFeedback.blockReason}): Purging ${uncachedVideos.length} records as Class IV-α.`);
+        uncachedIds.forEach(id => cachedMap.set(id, { id, isSafe: false, classification: "Class IV-α Haeresis Veritas" }));
         return {
-          assessments: videos.map(v => ({ id: v.id.videoId || v.id, isSafe: false, classification: "Class IV-α Haeresis Veritas" })),
+          assessments: expectedIds.map(id => cachedMap.get(id)),
+          usage: { input: totalInputTokens, output: totalOutputTokens }
+        };
+      }
+
+      if (data.candidates && data.candidates[0]?.finishReason === "SAFETY") {
+        postYoutubeStatus(`[Tsarevich] Safety filter tripped (finishReason: SAFETY).`);
+        if (canBisect && uncachedVideos.length > 1) {
+          postYoutubeStatus(`[Tsarevich] Bisecting batch (${uncachedVideos.length}) to isolate unsafe record...`);
+          const mid = Math.ceil(uncachedVideos.length / 2);
+          const [left, right] = await Promise.all([
+            purgeHeresy(uncachedVideos.slice(0, mid), query, false),
+            purgeHeresy(uncachedVideos.slice(mid), query, false)
+          ]);
+          const mergedMap = new Map(cachedMap);
+          left.assessments.forEach(a => mergedMap.set(a.id, a));
+          right.assessments.forEach(a => mergedMap.set(a.id, a));
+          return {
+            assessments: expectedIds.map(id => mergedMap.get(id)),
+            usage: {
+              input: totalInputTokens + left.usage.input + right.usage.input,
+              output: totalOutputTokens + left.usage.output + right.usage.output
+            }
+          };
+        }
+        postYoutubeStatus(`[Tsarevich] FAIL-DEADLY ACTIVATED (SAFETY): Purging ${uncachedVideos.length} records as Class IV-α.`);
+        uncachedIds.forEach(id => cachedMap.set(id, { id, isSafe: false, classification: "Class IV-α Haeresis Veritas" }));
+        return {
+          assessments: expectedIds.map(id => cachedMap.get(id)),
           usage: { input: totalInputTokens, output: totalOutputTokens }
         };
       }
@@ -4080,27 +4301,44 @@ ${metadataString}`
         responseText = responseText.substring(firstBracket, lastBracket + 1);
       }
       const compressedList = JSON.parse(responseText);
+      if (!Array.isArray(compressedList)) {
+        throw new Error("Response payload is not an array");
+      }
 
-      const decodedAssessments = expectedIds.map((expectedId, idx) => {
-        const item = compressedList.find(x => x.i === expectedId) || compressedList[idx] || {};
+      uncachedIds.forEach((expectedId, idx) => {
+        const item = compressedList.find(x => x && x.i === expectedId)
+          || (compressedList.length === uncachedIds.length && compressedList[idx] && !compressedList[idx].i ? compressedList[idx] : null)
+          || {};
         const decoded = decodeCodex(item.c || "3a1");
-        return {
+        const assessment = {
           id: expectedId,
           isSafe: decoded.isSafe,
           classification: decoded.classification
         };
+        cachedMap.set(expectedId, assessment);
+        if (item.c) {
+          tsarevichCache.set(`${queryKey}::${expectedId}`, assessment);
+        }
       });
 
-      return { assessments: decodedAssessments, usage: { input: totalInputTokens, output: totalOutputTokens } };
+      postYoutubeStatus(`[Tsarevich] Audit complete: ${uncachedIds.length} records classified.`);
+      return {
+        assessments: expectedIds.map(id => cachedMap.get(id)),
+        usage: { input: totalInputTokens, output: totalOutputTokens }
+      };
     } catch (e) {
+      postYoutubeStatus(`[Tsarevich] Fault on attempt ${attempts}/${maxAttempts}: ${e.message || e}`);
       if (attempts >= maxAttempts) {
-        console.warn("Tsarevich batch failed, executing safe purge fallback:", e.message || e);
+        postYoutubeStatus(`[Tsarevich] FAIL-DEADLY ACTIVATED (${e.message || e}): Purging ${uncachedVideos.length} records as Class III-α.`);
+        uncachedIds.forEach(id => cachedMap.set(id, { id, isSafe: false, classification: "Class III-α Haereticus Primus" }));
         return {
-          assessments: videos.map(v => ({ id: v.id.videoId || v.id, isSafe: false, classification: "Class III-α Haereticus Primus" })),
+          assessments: expectedIds.map(id => cachedMap.get(id)),
           usage: { input: totalInputTokens, output: totalOutputTokens }
         };
       }
-      await new Promise(r => setTimeout(r, 1000));
+      const retryDelay = 1200 * attempts;
+      postYoutubeStatus(`[Tsarevich] Retrying audit in ${retryDelay}ms...`);
+      await new Promise(r => setTimeout(r, retryDelay));
     }
   }
 }
@@ -4136,7 +4374,7 @@ async function searchVideos() {
   document.getElementById("videoDisplay").style.display = "none";
   searchBtn.disabled = true;
   sText.className = "flicker";
-  sText.innerText = "1/2: Accessing databanks...";
+  postYoutubeStatus("1/2: Accessing databanks...", true);
 
   const startTime = performance.now();
   try {
@@ -4146,7 +4384,7 @@ async function searchVideos() {
     const ytData = await ytRes.json();
     if (!ytData.items || ytData.items.length === 0) throw new Error("No records found");
 
-    sText.innerText = `2/2: Assessing ${ytData.items.length} records...`;
+    postYoutubeStatus(`2/2: Assessing ${ytData.items.length} records...`);
     const responseData = await purgeHeresy(ytData.items, query);
     const latencySec = ((performance.now() - startTime) / 1000).toFixed(2);
     const assessmentMap = {};
@@ -4156,11 +4394,12 @@ async function searchVideos() {
       video: v,
       assessment: assessmentMap[v.id.videoId || v.id] || { isSafe: false, classification: "Class III-α Haereticus Primus" }
     }));
+    postYoutubeStatus("[Tsarevich] Applying Edict of Obliteration...");
     finalUIItems = edictOfObliteration(finalUIItems);
 
     sText.className = "";
     const safeCount = finalUIItems.filter(item => item.assessment.isSafe).length;
-    sText.innerText = `${safeCount} of ${ytData.items.length} deemed pure`;
+    postYoutubeStatus(`${safeCount} of ${ytData.items.length} deemed pure`);
     metricsDiv.style.display = "block";
     metricsDiv.innerHTML = `Compute Load: ${responseData.usage.input} In | ${responseData.usage.output} Out <br/>Latency: <strong>${latencySec}s</strong>`;
 
@@ -4187,8 +4426,10 @@ async function searchVideos() {
     });
   } catch (err) {
     sText.className = "";
-    sText.style.color = "#ff4a4a";
-    sText.innerText = "Error: " + err.message;
+    const errLine = document.createElement("div");
+    errLine.style.color = "#ff4a4a";
+    errLine.textContent = "Error: " + err.message;
+    sText.appendChild(errLine);
   } finally {
     searchBtn.disabled = false;
   }
