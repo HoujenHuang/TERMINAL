@@ -3304,6 +3304,13 @@ function switchTab(id) {
   if (currentActiveTab && currentActiveTab.program === "editor" && targetTab.program !== "editor") {
     restorePreEditorTheme();
   }
+  if (currentActiveTab && currentActiveTab.program === "phosphor" && targetTab.program !== "phosphor") {
+    if (currentActiveTab.id === targetTab.id) {
+      if (typeof destroyPhosphorOS === "function") destroyPhosphorOS();
+    } else {
+      if (typeof pausePhosphorOS === "function") pausePhosphorOS();
+    }
+  }
 
   activeTabId = id;
   renderTabs();
@@ -3316,12 +3323,14 @@ function switchTab(id) {
 
   const proxyEl = document.getElementById("proxy");
   const htmlEl = document.getElementById("html");
+  const phosphorEl = document.getElementById("phosphor");
   const terminalContent = document.getElementById("terminalContent");
   const cmdInput = document.getElementById("commandInput");
 
   if (targetTab.program === "proxy") {
     if (proxyEl) proxyEl.style.display = "flex";
     if (htmlEl) htmlEl.style.display = "none";
+    if (phosphorEl) phosphorEl.style.display = "none";
     if (terminalContent) terminalContent.style.display = "none";
     closeSide();
     return;
@@ -3331,6 +3340,7 @@ function switchTab(id) {
     savePreEditorTheme();
     if (htmlEl) htmlEl.style.display = "block";
     if (proxyEl) proxyEl.style.display = "none";
+    if (phosphorEl) phosphorEl.style.display = "none";
     if (terminalContent) terminalContent.style.display = "none";
     closeSide();
     if (typeof initEditorIfNeeded === "function") initEditorIfNeeded();
@@ -3338,8 +3348,20 @@ function switchTab(id) {
     return;
   }
 
+  if (targetTab.program === "phosphor") {
+    if (phosphorEl) phosphorEl.style.display = "flex";
+    if (proxyEl) proxyEl.style.display = "none";
+    if (htmlEl) htmlEl.style.display = "none";
+    if (terminalContent) terminalContent.style.display = "none";
+    closeSide();
+    if (typeof initPhosphorOS === "function") initPhosphorOS();
+    if (typeof resumePhosphorOS === "function") resumePhosphorOS();
+    return;
+  }
+
   if (proxyEl) proxyEl.style.display = "none";
   if (htmlEl) htmlEl.style.display = "none";
+  if (phosphorEl) phosphorEl.style.display = "none";
   if (terminalContent) {
     terminalContent.style.display = "block";
     terminalContent.style.opacity = "1";
@@ -3357,6 +3379,14 @@ function switchTab(id) {
     if (targetTab.program === "games") document.getElementById("fileSearch")?.focus();
     if (targetTab.program === "youtube") document.getElementById("query")?.focus();
     if (targetTab.program === "proxy") document.getElementById("url-bar")?.focus();
+    if (targetTab.program === "phosphorAdvisory") {
+      if (typeof syncPhosphorUserPrompt === "function") syncPhosphorUserPrompt();
+      const confirmInput = document.getElementById("phosphorConfirmInput");
+      if (confirmInput) {
+        confirmInput.focus();
+        confirmInput.scrollIntoView({ block: "end" });
+      }
+    }
   }
 }
 
@@ -3372,6 +3402,9 @@ function closeTab(id) {
   if (closingTab && closingTab.program === "editor") restorePreEditorTheme();
 
   if (tabs.length === 1) {
+    if (tabs[0].program === "phosphor" && typeof destroyPhosphorOS === "function") {
+      destroyPhosphorOS();
+    }
     tabs[0].program = "terminal";
     tabs[0].title = "terminal";
     tabs[0].stdout = "";
@@ -3381,6 +3414,10 @@ function closeTab(id) {
 
   const index = tabs.findIndex(t => t.id === id);
   tabs = tabs.filter(t => t.id !== id);
+
+  if (closingTab && closingTab.program === "phosphor" && !tabs.some(t => t.program === "phosphor")) {
+    if (typeof destroyPhosphorOS === "function") destroyPhosphorOS();
+  }
 
   if (activeTabId === id) {
     const nextActive = tabs[Math.max(0, index - 1)];
@@ -3393,6 +3430,9 @@ function setProgramForActiveTab(progName, tabTitle) {
   const curTab = tabs.find(t => t.id === activeTabId);
   if (curTab) {
     if (curTab.program === "editor" && progName !== "editor") restorePreEditorTheme();
+    if (curTab.program === "phosphor" && progName !== "phosphor" && typeof destroyPhosphorOS === "function") {
+      destroyPhosphorOS();
+    }
     curTab.program = progName;
     curTab.title = tabTitle || progName;
     switchTab(activeTabId);
@@ -3402,6 +3442,7 @@ function setProgramForActiveTab(progName, tabTitle) {
 // Commands
 var stdout = document.getElementById("stdout");
 const input = document.getElementById("stdin");
+const phosphorConfirmInput = document.getElementById("phosphorConfirmInput");
 
 input.addEventListener("keydown", function(e) {
   if (e.key === "Enter") {
@@ -3415,6 +3456,37 @@ input.addEventListener("keydown", function(e) {
     if (scroll) scroll.scrollIntoView({ block: "end" });
   }
 });
+
+if (phosphorConfirmInput) {
+  phosphorConfirmInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handlePhosphorConfirm(phosphorConfirmInput.value);
+      phosphorConfirmInput.value = "";
+    }
+  });
+}
+
+function handlePhosphorConfirm(answer) {
+  const lower = answer.trim().toLowerCase();
+  const confirmMsg = document.getElementById("phosphorConfirmMsg");
+  if (lower === "y" || lower === "yes") {
+    if (confirmMsg) confirmMsg.textContent = "";
+    phosphorBootAccepted = true;
+    setProgramForActiveTab("phosphor", "phosphor");
+    return;
+  }
+  if (lower === "n" || lower === "no") {
+    if (confirmMsg) confirmMsg.textContent = "";
+    setProgramForActiveTab("terminal", "terminal");
+    appendOutput("PhosphorOS boot aborted.<br><br>");
+    return;
+  }
+  if (confirmMsg) {
+    confirmMsg.innerHTML = "Invalid input. Enter 'y' to boot PhosphorOS or 'n' to abort.<br><br>";
+  }
+  phosphorConfirmInput?.focus();
+}
 
 function buildSuperMap(pingStates, tooltips = {}) {
   const clientOk = Boolean(pingStates.client);
@@ -3678,6 +3750,23 @@ const COMMAND_HELP = {
     Anti-DPI / Censorship ______ VLESS | XTLS / Vision | TCP / RAW (or VLESS | REALITY | XHTTP)<br>
     Strict Firewall / CDN ______ Trojan | TLS | WebSocket<br>
     Maximum Anonymity __________ Tor Network | None | TCP / RAW
+  `,
+  phosphor: `
+    <b>WHAT IS PHOSPHOR-OS?</b><br>
+    PhosphorOS is a full, working Linux computer that runs completely inside your browser tab. Instead of executing commands on a remote server, it creates an isolated virtual machine directly on your own device so you can experiment with Linux commands, write scripts, and test tools safely.<br><br>
+
+    <b>HOW IT WORKS</b><br><br>
+
+    Hardware Emulation _ Uses the v86 WebAssembly engine to simulate a 32-bit x86 processor, BIOS, and 64 MB of RAM inside your browser.<br>
+    Linux System _______ Boots a lightweight Buildroot Linux kernel with standard Unix utilities and an interactive shell.<br>
+    Console Display ____ Connects the virtual machine's text output to an xterm.js terminal styled to match The TERMINAL.<br>
+    Sandbox Isolation __ Unauthenticated sessions run in an Offline Sandbox with no external network adapter, keeping your browser and the host server completely separated.<br><br>
+
+    <b>CONTROLS &amp; LIMITATIONS</b><br><br>
+
+    Temporary Storage __ All files and changes exist only in your browser's temporary memory and are permanently erased upon exiting, rebooting, or refreshing.<br>
+    Performance ________ Because your browser simulates a physical processor in software, tasks run noticeably slower than on native hardware.<br>
+    Exit vs. Send ESC __ Pressing the physical Esc key or clicking 'Exit' shuts down PhosphorOS and returns you to The TERMINAL. To pass an Escape keystroke to a Linux program (such as vi), click 'Send ESC' or press Ctrl+[.
   `
 };
 
@@ -3698,19 +3787,20 @@ function handleCommand(cmd) {
     case "help":
       response = `
         <b>GUEST COMMANDS</b>:<br><br>
-        <b>games</b> ____ A repository of unblockable games<br>
-        <b>youtube</b>* _ An ad-free YouTube emulator with a built-in Abomidable Intelligence safe search<br>
-        <b>radio</b> ____ A music player for the background<br>
-        <b>proxy</b>* ___ A web proxy that works entirely in the frontend and has state-of-the-art encryption<br>
-        <b>editor</b> ___ A code editor for developers and nerds<br>
-        <b>settings</b> _ Kind of obvious, isn't it?<br>
-        <b>help</b> _____ You already know what this does<br>
-        <b>clear</b> ____ Clears the terminal<br><br>
+        <b>games</b> _____ A repository of unblockable games<br>
+        <b>youtube</b>* __ An ad-free YouTube emulator with a built-in Abomidable Intelligence safe search<br>
+        <b>radio</b> _____ A music player for the background<br>
+        <b>proxy</b>* ____ A web proxy that works entirely in the frontend and has state-of-the-art encryption<br>
+        <b>editor</b> ____ A code editor for developers and nerds<br>
+        <b>phosphor</b>* _ An isolated client-side x86 Linux emulator sandbox (PhosphorOS)<br>
+        <b>settings</b> __ Kind of obvious, isn't it?<br>
+        <b>help</b> ______ You already know what this does<br>
+        <b>clear</b> _____ Clears the terminal<br><br>
 
         <b>SUDO COMMANDS</b> (FOR DEVELOPERS ONLY):<br><br>
-        <b>login</b> ____ Sign-in for admin privileges<br>
-        <b>admin</b> ____ Opens server monitoring side panels<br>
-        <b>info</b> _____ Fetches current server health<br><br>
+        <b>login</b> _____ Sign-in for admin privileges<br>
+        <b>admin</b> _____ Opens server monitoring side panels<br>
+        <b>info</b> ______ Fetches current server health<br><br>
 
         * Commands with asterisks have dedicated, more detailed 'help' commands. SYNTAX: 'help [COMMAND]'<br><br>
       `;
@@ -3720,6 +3810,16 @@ function handleCommand(cmd) {
     case "radio": setProgramForActiveTab("radio", "radio"); return;
     case "proxy": setProgramForActiveTab("proxy", "proxy"); return;
     case "editor": setProgramForActiveTab("editor", "editor"); return;
+    case "phosphor":
+      if (phosphorBootAccepted) {
+        setProgramForActiveTab("phosphor", "phosphor");
+        return;
+      }
+      if (phosphorConfirmInput) phosphorConfirmInput.value = "";
+      const confirmMsg = document.getElementById("phosphorConfirmMsg");
+      if (confirmMsg) confirmMsg.textContent = "";
+      setProgramForActiveTab("phosphorAdvisory", "phosphor");
+      return;
     case "settings": setProgramForActiveTab("themeSetting", "theme"); return;
     case "login":
       setProgramForActiveTab("login", "login");
@@ -3767,16 +3867,21 @@ function handleCommand(cmd) {
 document.body.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
-    setProgramForActiveTab("terminal", "terminal");
+    const curTab = tabs.find(t => t.id === activeTabId);
+    if (curTab && curTab.program === "phosphor" && typeof exitPhosphorOS === "function") {
+      exitPhosphorOS();
+    } else {
+      setProgramForActiveTab("terminal", "terminal");
+    }
   }
 });
 
+// Games
 function handleSearch() {
   const query = document.getElementById("fileSearch").value.toLowerCase();
   generateAllSections(query);
 }
 
-// Games
 const blacklistArr = ["dokidokiliteratureclub", "classof09", "skibidi", "yanderesimulator", "tung", "brainrot"];
 function handleBlacklistedFile() {
   window.location.replace("https://ohiomeansjobs.ohio.gov/");
@@ -4427,13 +4532,318 @@ async function searchVideos() {
   } catch (err) {
     sText.className = "";
     const errLine = document.createElement("div");
-    errLine.style.color = "#ff4a4a";
     errLine.textContent = "Error: " + err.message;
     sText.appendChild(errLine);
   } finally {
     searchBtn.disabled = false;
   }
 }
+
+// PhosphorOS
+const PHOSPHOR_MOTD = [
+  " /$$$$$$$  /$$   /$$  /$$$$$$   /$$$$$$  /$$$$$$$  /$$   /$$  /$$$$$$  /$$$$$$$ ",
+  "| $$__  $$| $$  | $$ /$$__  $$ /$$__  $$| $$__  $$| $$  | $$ /$$__  $$| $$__  $$",
+  "| $$  \\ $$| $$  | $$| $$  \\ $$| $$  \\__/| $$  \\ $$| $$  | $$| $$  \\ $$| $$  \\ $$",
+  "| $$$$$$$/| $$$$$$$$| $$  | $$|  $$$$$$ | $$$$$$$/| $$$$$$$$| $$  | $$| $$$$$$$/",
+  "| $$____/ | $$__  $$| $$  | $$ \\____  $$| $$____/ | $$__  $$| $$  | $$| $$__  $$",
+  "| $$      | $$  | $$| $$  | $$ /$$  \\ $$| $$      | $$  | $$| $$  | $$| $$  \\ $$",
+  "| $$      | $$  | $$|  $$$$$$/|  $$$$$$/| $$      | $$  | $$|  $$$$$$/| $$  | $$",
+  "|__/      |__/  |__/ \\______/  \\______/ |__/      |__/  |__/ \\______/ |__/  |__/ OS",
+  "x86 Linux Emulator"
+].join("\n");
+
+let phosphorEmulator = null;
+let phosphorTerm = null;
+let phosphorFitAddon = null;
+let phosphorResizeObserver = null;
+let phosphorBootAccepted = false;
+let phosphorBooting = false;
+let phosphorBooted = false;
+let phosphorLastAdminMode = false;
+
+function getPhosphorUsername() {
+  if (!admin) return "guest";
+  const raw = document.querySelector(".user")?.textContent.trim() || "admin";
+  return raw.replace(/[^a-zA-Z0-9._-]/g, "") || "admin";
+}
+
+function setPhosphorStatus(text) {
+  const el = document.getElementById("phosphorStatus");
+  if (el) el.textContent = text;
+}
+
+function syncPhosphorUserPrompt() {
+  const currentUser = getPhosphorUsername();
+  document.querySelectorAll("#phosphor .user, #phosphorAdvisory .user").forEach(el => {
+    el.textContent = currentUser;
+  });
+}
+
+async function resolvePhosphorImage() {
+  const kernelCandidates = [
+    "https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/buildroot-bzimage68.bin",
+    "https://static.simonwillison.net/static/cors-allow/2026/buildroot-bzimage68.bin"
+  ];
+  for (const url of kernelCandidates) {
+    try {
+      const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
+      if (res.ok) return { type: "bzimage", url };
+    } catch (_) {}
+  }
+  return {
+    type: "cdrom",
+    url: "https://raw.githubusercontent.com/copy/images/db92d8fd4a53dbd73b8e0588bb4bd8fe37a1975a/linux.iso"
+  };
+}
+
+function sendPhosphorEscape() {
+  if (phosphorEmulator && typeof phosphorEmulator.serial0_send === "function") {
+    phosphorEmulator.serial0_send("\x1b");
+    phosphorTerm?.focus();
+  }
+}
+
+function pausePhosphorOS() {
+  if (phosphorEmulator && typeof phosphorEmulator.stop === "function") {
+    try { phosphorEmulator.stop(); } catch (_) {}
+    setPhosphorStatus("Paused");
+  }
+}
+
+function resumePhosphorOS() {
+  syncPhosphorUserPrompt();
+  if (phosphorEmulator && typeof phosphorEmulator.run === "function") {
+    try { phosphorEmulator.run(); } catch (_) {}
+    const netLabel = phosphorLastAdminMode ? "Authenticated Wisp" : "Offline Sandbox";
+    setPhosphorStatus(`Running (${netLabel})`);
+    setTimeout(() => {
+      if (phosphorFitAddon) {
+        try { phosphorFitAddon.fit(); } catch (_) {}
+      }
+      phosphorTerm?.focus();
+    }, 550);
+  }
+}
+
+function destroyPhosphorOS() {
+  if (phosphorResizeObserver) {
+    try { phosphorResizeObserver.disconnect(); } catch (_) {}
+    phosphorResizeObserver = null;
+  }
+  if (phosphorEmulator) {
+    try { phosphorEmulator.stop(); } catch (_) {}
+    try { phosphorEmulator.destroy(); } catch (_) {}
+    phosphorEmulator = null;
+  }
+  if (phosphorTerm) {
+    try { phosphorTerm.dispose(); } catch (_) {}
+    phosphorTerm = null;
+  }
+  phosphorFitAddon = null;
+  phosphorBooted = false;
+  phosphorBooting = false;
+  setPhosphorStatus("Standby");
+}
+
+function exitPhosphorOS() {
+  destroyPhosphorOS();
+  setProgramForActiveTab("terminal", "terminal");
+}
+
+function resetPhosphorOS() {
+  destroyPhosphorOS();
+  initPhosphorOS();
+}
+
+async function initPhosphorOS() {
+  syncPhosphorUserPrompt();
+  if (phosphorBooted || phosphorBooting) {
+    if (phosphorFitAddon) {
+      try { phosphorFitAddon.fit(); } catch (_) {}
+    }
+    return;
+  }
+  phosphorBooting = true;
+
+  const termContainer = document.getElementById("phosphorTerminal");
+  const screenContainer = document.getElementById("phosphorScreen");
+  if (!termContainer || !screenContainer) {
+    phosphorBooting = false;
+    return;
+  }
+
+  if (typeof V86 === "undefined" || typeof Terminal === "undefined") {
+    setPhosphorStatus("Emulator dependencies unavailable");
+    termContainer.textContent = "ERROR: Failed to load v86 or xterm.js from CDN.";
+    phosphorBooting = false;
+    return;
+  }
+
+  termContainer.innerHTML = "";
+  termContainer.style.display = "block";
+  screenContainer.style.display = "none";
+
+  const themeColor = getComputedStyle(document.documentElement).getPropertyValue("--theme").trim() || "rgb(51, 255, 51)";
+  const fontFam = document.body.style.fontFamily || "Courier New, monospace";
+  const fontSizePx = Math.max(11, Math.round(window.innerWidth * 0.01));
+
+  phosphorTerm = new Terminal({
+    allowTransparency: true,
+    cursorBlink: true,
+    convertEol: true,
+    fontFamily: fontFam,
+    fontSize: fontSizePx,
+    theme: {
+      background: "rgba(0, 0, 0, 0)",
+      foreground: themeColor,
+      cursor: themeColor
+    }
+  });
+
+  phosphorTerm.attachCustomKeyEventHandler((e) => {
+    if (e.key === "Escape") return false;
+    return true;
+  });
+
+  if (typeof FitAddon !== "undefined" && FitAddon.FitAddon) {
+    phosphorFitAddon = new FitAddon.FitAddon();
+    phosphorTerm.loadAddon(phosphorFitAddon);
+  }
+
+  phosphorTerm.open(termContainer);
+  setTimeout(() => {
+    if (phosphorFitAddon) {
+      try { phosphorFitAddon.fit(); } catch (_) {}
+    }
+  }, 50);
+  setTimeout(() => {
+    if (phosphorFitAddon) {
+      try { phosphorFitAddon.fit(); } catch (_) {}
+    }
+  }, 550);
+
+  if (typeof ResizeObserver !== "undefined") {
+    phosphorResizeObserver = new ResizeObserver(() => {
+      if (phosphorFitAddon && termContainer.offsetParent !== null) {
+        try { phosphorFitAddon.fit(); } catch (_) {}
+      }
+    });
+    phosphorResizeObserver.observe(termContainer);
+  }
+
+  const isAdminNet = Boolean(admin && adminToken);
+  phosphorLastAdminMode = isAdminNet;
+  const netLabel = isAdminNet ? "Authenticated Wisp" : "Offline Sandbox";
+  const phosphorUser = getPhosphorUsername();
+
+  phosphorTerm.writeln(`[PhosphorOS] Resolving kernel image (${netLabel})...`);
+  setPhosphorStatus("Fetching image...");
+
+  const image = await resolvePhosphorImage();
+  const useSerial = image.type === "bzimage";
+
+  if (!useSerial) {
+    termContainer.style.display = "none";
+    screenContainer.style.display = "block";
+  }
+
+  const v86Config = {
+    wasm_path: "https://cdn.jsdelivr.net/npm/v86@0.5.472/build/v86.wasm",
+    bios: { url: "https://cdn.jsdelivr.net/gh/copy/v86@master/bios/seabios.bin" },
+    vga_bios: { url: "https://cdn.jsdelivr.net/gh/copy/v86@master/bios/vgabios.bin" },
+    memory_size: 64 * 1024 * 1024,
+    vga_memory_size: 2 * 1024 * 1024,
+    filesystem: {},
+    disable_keyboard: useSerial,
+    disable_mouse: useSerial,
+    disable_speaker: true,
+    autostart: true
+  };
+
+  if (useSerial) {
+    v86Config.bzimage = { url: image.url };
+    v86Config.cmdline = "tsc=reliable mitigations=off random.trust_cpu=on";
+  } else {
+    v86Config.screen_container = screenContainer;
+    v86Config.cdrom = { url: image.url };
+  }
+
+  if (isAdminNet) {
+    v86Config.net_device = {
+      type: "ne2k",
+      relay_url: `wisps://${WISP_URL}/wisp/?mode=phosphor&token=${encodeURIComponent(adminToken)}`
+    };
+  }
+
+  try {
+    setPhosphorStatus(`Booting (${netLabel})...`);
+    phosphorEmulator = new V86(v86Config);
+
+    if (useSerial) {
+      const decoder = new TextDecoder("utf-8");
+      let bootTail = "";
+      let setupTail = "";
+      let phosphorBootConfigured = false;
+      let phosphorSuppressSerial = false;
+
+      phosphorEmulator.add_listener("serial0-output-byte", (byte) => {
+        const ch = String.fromCharCode(byte);
+
+        if (phosphorSuppressSerial) {
+          setupTail = (setupTail + ch).slice(-64);
+          if (setupTail.endsWith("__PHOSPHOR_READY__\r\n") || setupTail.endsWith("__PHOSPHOR_READY__\n")) {
+            phosphorSuppressSerial = false;
+            if (phosphorTerm) {
+              phosphorTerm.reset();
+              PHOSPHOR_MOTD.split("\n").forEach(line => phosphorTerm.writeln(line));
+              phosphorTerm.writeln("");
+            }
+          }
+          return;
+        }
+
+        if (phosphorTerm) {
+          phosphorTerm.write(decoder.decode(Uint8Array.of(byte), { stream: true }));
+        }
+
+        if (!phosphorBootConfigured) {
+          bootTail = (bootTail + ch).slice(-32);
+          if (bootTail.endsWith("~% ") || bootTail.endsWith("~# ")) {
+            phosphorBootConfigured = true;
+            phosphorSuppressSerial = true;
+            phosphorEmulator.serial0_send(`export PS1='${phosphorUser}@phosphor:\\w$ '; printf '__PHOSPHOR_''READY__\\n'\n`);
+          }
+        }
+      });
+
+      phosphorTerm.onData((data) => {
+        if (phosphorEmulator && typeof phosphorEmulator.serial0_send === "function") {
+          phosphorEmulator.serial0_send(data);
+        }
+      });
+      phosphorTerm.focus();
+    }
+
+    phosphorEmulator.add_listener("emulator-ready", () => {
+      setPhosphorStatus(`Running (${netLabel})`);
+      load(`[ OK ] PhosphorOS initialized (${netLabel})`);
+    });
+
+    phosphorBooted = true;
+  } catch (err) {
+    setPhosphorStatus("Boot failed");
+    phosphorTerm?.writeln(`\r\n[ERROR] Failed to boot PhosphorOS: ${err.message || err}`);
+  } finally {
+    phosphorBooting = false;
+  }
+}
+
+window.addEventListener("resize", () => {
+  const phosphorEl = document.getElementById("phosphor");
+  if (phosphorEl && phosphorEl.style.display !== "none" && phosphorFitAddon) {
+    try { phosphorFitAddon.fit(); } catch (_) {}
+  }
+});
 
 // Loading & boot
 let splashStarted = false;
