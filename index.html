@@ -449,6 +449,21 @@
             </div>
           </div>
         </div>
+
+        <!-- PhosphorOS Sudo -->
+        <div id="phosphorSudo" class="program invisible">
+          <div id="phosphorSudoHeader">
+            <span id="phosphorSudoStatus" style="font-weight: normal; margin-left: 8px;">Disconnected</span>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" id="phosphorSudoEscBtn" onclick="sendPhosphorSudoEscape()" style="width: auto;">Send ESC</button><span> | </span>
+              <button type="button" id="phosphorSudoReconnectBtn" onclick="reconnectPhosphorSudo()" style="width: auto;">Reconnect</button><span> | </span>
+              <button type="button" onclick="exitPhosphorSudo()" style="width: auto;">Exit</button>
+            </div>
+          </div>
+          <div id="phosphorSudoWorkspace">
+            <div id="phosphorSudoTerminal"></div>
+          </div>
+        </div>
       </div>
     </div>
 
