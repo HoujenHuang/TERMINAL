@@ -90,20 +90,6 @@ div[style*="background"][style*="--theme"] * {
   -webkit-text-fill-color: #000000 !important;
 }
 
-.flicker {
-  animation: flicker 0.5s infinite;
-}
-
-@keyframes flicker {
-  0%,
-  100% {
-    opacity: 0.95;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 .stdout {
   list-style-type: none;
 }
