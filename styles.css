@@ -532,7 +532,8 @@ iframe {
 }
 
 /* PhosphorOS */
-#phosphor {
+#phosphor,
+#phosphorSudo {
   display: none;
   flex-direction: column;
   flex: 1;
@@ -548,7 +549,8 @@ iframe {
   position: relative;
 }
 
-#phosphorWorkspace {
+#phosphorWorkspace,
+#phosphorSudoWorkspace {
   display: flex;
   flex-direction: column;
   flex: 1 1 0;
@@ -556,12 +558,15 @@ iframe {
   min-width: 0;
   width: 100%;
   height: 100%;
+  padding: 5px;
+  box-sizing: border-box;
   overflow: hidden;
   position: relative;
-  background: transparent;
+  background-color: rgba(0, 0, 0, 0.5);
 }
 
-#phosphorHeader {
+#phosphorHeader,
+#phosphorSudoHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -572,7 +577,8 @@ iframe {
 }
 
 #phosphorTerminal,
-#phosphorScreen {
+#phosphorScreen,
+#phosphorSudoTerminal {
   width: 100%;
   height: 100%;
   flex: 1 1 0;
@@ -589,7 +595,8 @@ iframe {
   overflow: auto;
 }
 
-#phosphorTerminal .terminal.xterm {
+#phosphorTerminal .terminal.xterm,
+#phosphorSudoTerminal .terminal.xterm {
   flex: none;
   width: 100%;
   height: 100%;
@@ -597,14 +604,36 @@ iframe {
   padding: 0;
   border: none;
   box-shadow: none;
-  overflow: visible;
+  overflow: hidden;
 }
 
 #phosphorTerminal .xterm,
 #phosphorTerminal .xterm-viewport,
-#phosphorTerminal .xterm-screen {
-  background: transparent !important;
+#phosphorTerminal .xterm-screen,
+#phosphorSudoTerminal .xterm,
+#phosphorSudoTerminal .xterm-viewport,
+#phosphorSudoTerminal .xterm-screen {
   background-color: transparent !important;
+  padding: 0;
+}
+
+#phosphorTerminal .xterm-viewport,
+#phosphorSudoTerminal .xterm-viewport {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-width: none;
+}
+
+#phosphorTerminal .xterm-viewport::-webkit-scrollbar,
+#phosphorSudoTerminal .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+#phosphorTerminal *,
+#phosphorSudoTerminal * {
+  text-shadow: none !important;
 }
 
 /* Graphs */
