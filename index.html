@@ -12,7 +12,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
 
   <!-- Dependencies -->
-  <link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous" />
+  <link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
   <script src="https://cdn.amcharts.com/lib/5/index.js"></script>
@@ -22,6 +23,9 @@
   <script src="https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/v86@0.5.472/build/libv86.js"></script>
 </head>
 <body>
   <div id="radioPlayer"></div>
@@ -275,6 +279,26 @@
             <iframe id="adminFrame" style="height: 100%; border: none;"></iframe>
           </div>
 
+          <div id="phosphorAdvisory" class="program invisible">
+            =====<br>
+            <b>[ WARNING: PHOSPHOR-OS RESOURCE ADVISORY ]</b><br>
+            - CPU Overhead: x86-to-WASM JIT emulation runs ~10x slower than native execution and may cause UI lag.<br>
+            - Memory &amp; Bandwidth: Allocates 64 MB of browser RAM and fetches ~7-8 MB of WASM, BIOS, and Linux images from CDN.<br>
+            - Volatile Sandbox: All guest filesystem changes are stored in RAM and erased on page reload or reboot.<br>
+            - Network Isolation: Unauthenticated sessions boot offline; admin sessions use an isolated Wisp tunnel.<br>
+            - Controls: Pressing Esc exits to The TERMINAL; use Ctrl+[ or 'Send ESC' inside Linux apps.<br><br>
+            Proceed with booting PhosphorOS? (y/n)<br><br>
+            <div id="phosphorConfirmMsg"></div>
+            <section class="flexbox">
+              <div class="normal">
+                <span><b><span class="user">guest</span>@phosphor:~$</b>&nbsp;</span>
+              </div>
+              <div class="stretch">
+                <input type="text" id="phosphorConfirmInput" autocomplete="off">
+              </div>
+            </section>
+          </div>
+
           <!-- Command input -->
           <div id="commandInput">
             <section class="flexbox">
@@ -404,6 +428,25 @@
 
             <iframe id="preview-window" style="width: calc(50% - 5px); height: 100%; background: white; margin-left: 5px;"></iframe>
             <textarea id="rte" class="invisible" style="width: calc(50% - 5px); height: 100%; margin-left: 5px; color: var(--theme);" disabled></textarea>
+          </div>
+        </div>
+
+        <!-- PhosphorOS -->
+        <div id="phosphor" class="program invisible">
+          <div id="phosphorHeader">
+            <span id="phosphorStatus">Standby</span>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" id="phosphorEscBtn" onclick="sendPhosphorEscape()" style="width: auto;">Send ESC</button><span> | </span>
+              <button type="button" id="phosphorResetBtn" onclick="resetPhosphorOS()" style="width: auto;">Reboot</button><span> | </span>
+              <button type="button" onclick="exitPhosphorOS()" style="width: auto;">Exit</button>
+            </div>
+          </div>
+          <div id="phosphorWorkspace">
+            <div id="phosphorTerminal"></div>
+            <div id="phosphorScreen" style="display: none;">
+              <div style="white-space: pre; font: 14px monospace; line-height: 14px;"></div>
+              <canvas style="display: none;"></canvas>
+            </div>
           </div>
         </div>
       </div>
