@@ -1,4 +1,3 @@
-  <script>
 // Radio
 const songData = [
   { filename: "resurrection.mp3", title: "ППК - Воскрешение" },
@@ -5226,4 +5225,3 @@ function showTerminal() {
     resumeFPS();
   }, 1200);
 }
-  </script>
