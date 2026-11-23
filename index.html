@@ -12,7 +12,9 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
 
   <!-- Dependencies -->
-  <link id="theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/nord.min.css" rel="stylesheet" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/nord.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/solarized.min.css" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js"></script>
@@ -21,7 +23,15 @@
   <script src="https://cdn.amcharts.com/lib/5/geodata/worldLow.js"></script>
   <script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/xml/xml.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/css/css.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/htmlmixed/htmlmixed.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/python/python.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/selection/active-line.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.21.3/full/pyodide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -306,7 +316,7 @@
                 <b><span class="user">guest</span>@terminal:~$</b>&nbsp;
               </div>
               <div class="stretch">
-                <input id="stdin" type="text" autocomplete="off">
+                <input id="stdin" type="text" autocomplete="off" disabled>
               </div>
             </section>
           </div>
@@ -420,10 +430,7 @@
 
           <div class="container" style="height: calc(100% - 35px); margin-bottom: 5px;">
             <div id="divCodeWrapper" style="height:100%;">
-              <pre><code style="position: absolute; width: 100%; height: 100%; top: 0; left: 0;" class="lineNumbers"></code></pre>
-              <pre><code id="lineNumbers" style="opacity: 0.5;"></code></pre>
-              <pre id="preCode"><code id="codeBlock" class="language-html"></code></pre>
-              <textarea id="codebox" wrap="soft" spellcheck="false"></textarea>
+              <textarea id="codebox" spellcheck="false"></textarea>
             </div>
 
             <iframe id="preview-window" style="width: calc(50% - 5px); height: 100%; background: white; margin-left: 5px;"></iframe>
