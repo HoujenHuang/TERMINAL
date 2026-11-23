@@ -5152,17 +5152,38 @@ function runWhenVisible(callback, delay = 0) {
   }, delay);
 }
 
+const splashes = [
+  "Downloading virus...", "Sending search history to the FBI...", "Checking for heresy...", "Loading unspecified code...", "Pretending to do something very complicated...", "Drinking my 5th cup of coffee...", "Searching for where I left the data...", "Finding the motivation to continue...", "Overloading nuclear reactor...", "Purging the mutant, the alien, and the heretic...", "Waking up at 6 AM...", "Touching grass...", "For the God-Emperor!", "Ave Omnissiah!", "Now OSHA-compliant!", "Somehow, the script works!", "Now thermally-insulated with asbestos!", "Now with 100% less viruses!", "Now spontaneously combustible!", "Now with less sodium!", "No added sugars!", "Don't panic!", "9/9 doctors recommend!", "Always bet on red!", "Do 20 push-ups!", "Now gluten-free!", "*Insert text here*", "Technoblade never dies!", "Malware sold seperately", "Furries make for great target practice", "You are not the only one who can see what you search", "Enter at your own risk", "Houjen, please fix The TERMINAL", "I'm right behind you", "What is this even about, anyway?"
+];
+
 async function bootSystem() {
-  displayTime();
-  displayDate();
-  updateTimer();
-  checkBrowser();
-  checkMemory();
-  checkBattery();
-  checkConnection();
-  generateAllSections();
-  startEngine();
-  checkAndRestoreAdminSession();
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const startupTasks = [
+    displayTime,
+    displayDate,
+    updateTimer,
+    checkBrowser,
+    checkMemory,
+    checkBattery,
+    checkConnection,
+    generateAllSections,
+    startEngine,
+    checkAndRestoreAdminSession
+  ];
+
+  async function runStartupSequence(delayMs = 200) {
+    for (const task of startupTasks) {
+      await task();
+      await sleep(delayMs);
+    }
+  }
+
+  runStartupSequence(50);
+
+  const random = Math.floor(Math.random() * splashes.length);
+
+  document.getElementById("splashText").textContent = splashes[random];
 
   const ipPromise = (async () => {
     try {
