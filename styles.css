@@ -947,66 +947,6 @@ body.admin-graph-mode .admin-feature:not(.mini-info-container) {
   margin: 5px 0;
 }
 
-#preCode code,
-textarea,
-#lineNumbers,
-.lineNumbers {
-  font-family: "Courier New", monospace;
-  font-size: 1vw;
-  line-height: 1.2;
-}
-
-#divCodeWrapper {
-  height: 100%;
-  width: calc(50% - 5px);
-  overflow: hidden;
-  border: 2px solid var(--theme);
-  box-shadow: 0 0 5px var(--theme);
-  position: relative;
-  text-shadow: none;
-}
-
-#preCode {
-  height: 100%;
-  width: calc(100% - 50px);
-  position: absolute;
-  top: 0;
-  left: 50px;
-  overflow: hidden;
-  padding: 0;
-  margin: 0;
-  background: #1b1b1b;
-  border: none;
-  text-shadow: none;
-  box-sizing: border-box;
-}
-
-#preCode code {
-  position: absolute;
-  top: 0;
-  left: 0;
-  padding: 15px;
-  padding-left: 13px;
-  margin: 0;
-  height: 100%;
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  border-left: 2px solid transparent;
-  overflow-y: scroll;
-  overflow-x: hidden;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  overflow-wrap: break-word !important;
-  letter-spacing: normal;
-  tab-size: 2;
-  -moz-tab-size: 2;
-}
-
-#preCode span {
-  text-shadow: none;
-}
-
 textarea {
   overflow-y: scroll;
   white-space: pre-wrap;
@@ -1020,44 +960,71 @@ textarea {
   resize: none;
 }
 
-#codebox {
-  position: absolute;
-  top: 0;
-  left: 50px;
+#divCodeWrapper {
   height: 100%;
-  width: calc(100% - 50px);
-  padding: 15px;
-  padding-left: 13px;
-  margin: 0;
-  box-sizing: border-box;
-  z-index: 2;
-  background-color: rgba(0, 0, 0, 0);
-  color: rgba(0, 0, 0, 0);
-  border: none;
-  border-left: 2px solid var(--theme);
+  width: calc(50% - 5px);
+  overflow: hidden;
+  border: 2px solid var(--theme);
+  box-shadow: 0 0 5px var(--theme);
+  position: relative;
   text-shadow: none;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  overflow-wrap: break-word !important;
-  overflow-x: hidden !important;
-  letter-spacing: normal;
-  tab-size: 2;
-  -moz-tab-size: 2;
 }
 
-#lineNumbers {
-  position: absolute;
-  top: 0;
-  left: 0;
-  padding: 15px 5px 15px 0;
+#codebox {
+  width: 100%;
   height: 100%;
-  width: 50px;
-  overflow: hidden;
+  border: none;
+  background: #1b1b1b;
+  color: var(--theme);
+  font-family: "Courier New", monospace;
+  font-size: 1vw;
+  line-height: 1.2;
+  padding: 15px;
   box-sizing: border-box;
-  text-align: right;
+}
+
+#divCodeWrapper .CodeMirror {
+  width: 100%;
+  height: 100%;
+  font-family: "Courier New", monospace;
+  font-size: 1vw;
+  line-height: 1.2;
+  text-shadow: none !important;
+  letter-spacing: normal;
+}
+
+#divCodeWrapper .CodeMirror * {
+  text-shadow: none !important;
+}
+
+#divCodeWrapper .CodeMirror pre.CodeMirror-line,
+#divCodeWrapper .CodeMirror pre.CodeMirror-line-like {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+#divCodeWrapper .CodeMirror textarea {
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  background: transparent !important;
   white-space: pre !important;
-  user-select: none;
-  pointer-events: none;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+#divCodeWrapper .CodeMirror-gutters {
+  border-right: 2px solid var(--theme);
+}
+
+#divCodeWrapper .CodeMirror-linenumber {
+  opacity: 0.65;
+  padding: 0 6px;
+}
+
+#divCodeWrapper .CodeMirror-activeline-background {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 #editorOutputWrapper {
