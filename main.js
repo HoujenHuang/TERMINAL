@@ -250,11 +250,15 @@ function setGlobalFont(fontFamily) {
 
   fontStyle.textContent = `
   body, input, button, textarea, .terminal, .mini-info, b, span,
-  #codebox, #codeBlock, #lineNumbers, #preCode code {
+  .CodeMirror, .CodeMirror pre, .CodeMirror span {
     font-family: "${fontFamily}", monospace !important;
     line-height: 1.2;
   }
 `;
+
+  if (typeof refreshEditorMetrics === "function") {
+    refreshEditorMetrics();
+  }
 
   setCookie("selectedFont", fontFamily, 30);
 }
@@ -2678,23 +2682,21 @@ updateBookmarkBtn();
 
 // Code editor
 const codebox = document.getElementById("codebox");
-const codeBlock = document.getElementById("codeBlock");
-const lineNumbers = document.getElementById("lineNumbers");
 
 const DEFAULT_HTML = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>Title</title>\n<style>\n /* CSS goes here */\n</style>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n<script>\n  // JS goes here\n<\/script>\n</body>\n</html>';
 const DEFAULT_PYTHON = 'print("Hello, World!")';
 
+const EDITOR_THEME_MAP = {
+  "base16/nord": { cmTheme: "nord", cmClasses: ["cm-s-nord"], fallbackAccent: "rgb(97, 110, 136)" },
+  "base16/solarized-dark": { cmTheme: "solarized dark", cmClasses: ["cm-s-solarized", "cm-s-dark"], fallbackAccent: "rgb(88, 110, 117)" }
+};
+
+let cmEditor = null;
 let currentLangValue = "language-html";
 let isConsoleCollapsed = false;
 let preEditorTheme = null;
 let saveTimeout = null;
-let highlightTimeout = null;
-let lineNumbersRaf = null;
-
-let cachedWidth = 0;
-let cachedContentWidth = 0;
-let cachedBaseLineHeight = 18;
-let cachedCharWidth = 8;
+let editorResizeObserver = null;
 
 function savePreEditorTheme() {
   if (!preEditorTheme) {
@@ -2710,199 +2712,126 @@ function restorePreEditorTheme() {
   preEditorTheme = null;
 }
 
-function updateLineNumbers() {
-  const code = codebox.value;
-  const lines = code.split("\n");
-  const lineCount = lines.length;
+function getCmMode(langValue) {
+  return langValue === "language-python" ? "python" : "htmlmixed";
+}
 
-  let mirror = document.getElementById("editorLineMeasureMirror");
-  if (!mirror) {
-    mirror = document.createElement("div");
-    mirror.id = "editorLineMeasureMirror";
-    mirror.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;padding:0;margin:0;border:none;";
-    document.body.appendChild(mirror);
-  }
+function getEditorValue() {
+  return cmEditor ? cmEditor.getValue() : codebox.value;
+}
 
-  const clientWidth = codebox.clientWidth;
-  if (clientWidth > 0 && (clientWidth !== cachedWidth || !cachedContentWidth)) {
-    const cs = window.getComputedStyle(codebox);
-    mirror.style.fontFamily = cs.fontFamily;
-    mirror.style.fontSize = cs.fontSize;
-    mirror.style.lineHeight = cs.lineHeight;
-    mirror.style.letterSpacing = cs.letterSpacing;
-
-    const pl = parseFloat(cs.paddingLeft) || 0;
-    const pr = parseFloat(cs.paddingRight) || 0;
-    cachedContentWidth = Math.max(10, clientWidth - pl - pr);
-    mirror.style.width = cachedContentWidth + "px";
-
-    mirror.textContent = "M";
-    cachedBaseLineHeight = mirror.offsetHeight || 18;
-    cachedCharWidth = mirror.getBoundingClientRect().width || 8;
-    cachedWidth = clientWidth;
-  }
-
-  const contentWidth = cachedContentWidth || 10;
-  const baseLineHeight = cachedBaseLineHeight || 18;
-  const charWidth = cachedCharWidth || 8;
-
-  let arr = [];
-  const wrapIndices = [];
-  for (let i = 0; i < lineCount; i++) {
-    const lineText = lines[i];
-    if (lineText.length > 0 && clientWidth > 0 && (lineText.length * charWidth >= contentWidth)) {
-      wrapIndices.push(i);
-    }
-  }
-
-  if (wrapIndices.length === 0) {
-    for (let i = 0; i < lineCount; i++) {
-      arr.push(i + 1);
-    }
+function setEditorValue(val) {
+  if (cmEditor) {
+    cmEditor.setValue(val);
+    cmEditor.clearHistory();
   } else {
-    mirror.innerHTML = wrapIndices.map(idx => `<div data-i="${idx}">${lines[idx].replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") || "&nbsp;"}</div>`).join("");
-    const wrapMap = {};
-    const children = mirror.children;
-    for (let k = 0; k < children.length; k++) {
-      const child = children[k];
-      const idx = child.dataset.i;
-      const h = child.offsetHeight;
-      wrapMap[idx] = Math.max(0, Math.round(h / baseLineHeight) - 1);
-    }
-    for (let i = 0; i < lineCount; i++) {
-      arr.push(i + 1);
-      const extra = wrapMap[i] || 0;
-      for (let j = 0; j < extra; j++) {
-        arr.push("");
+    codebox.value = val;
+  }
+}
+
+function refreshEditorMetrics() {
+  if (cmEditor) {
+    cmEditor.refresh();
+  }
+}
+
+function probeThemeAccent(themeCfg) {
+  const probe = document.createElement("div");
+  probe.className = "CodeMirror " + themeCfg.cmClasses.join(" ");
+  probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;top:-9999px;left:-9999px;";
+  const commentSpan = document.createElement("span");
+  commentSpan.className = "cm-comment";
+  commentSpan.textContent = "//";
+  probe.appendChild(commentSpan);
+  document.body.appendChild(probe);
+
+  const commentColor = window.getComputedStyle(commentSpan).color;
+  const baseColor = window.getComputedStyle(probe).color;
+  probe.remove();
+
+  if (commentColor && commentColor !== "rgb(0, 0, 0)" && commentColor !== "rgba(0, 0, 0, 0)") {
+    return commentColor;
+  }
+  if (baseColor && baseColor !== "rgb(0, 0, 0)" && baseColor !== "rgba(0, 0, 0, 0)") {
+    return baseColor;
+  }
+  return themeCfg.fallbackAccent;
+}
+
+function createCodeMirrorIfNeeded() {
+  if (cmEditor || typeof CodeMirror === "undefined" || !codebox) return;
+
+  const styleSelect = document.getElementById("selectStyle");
+  const selectedStyle = styleSelect ? styleSelect.value : "base16/nord";
+  const themeCfg = EDITOR_THEME_MAP[selectedStyle] || EDITOR_THEME_MAP["base16/nord"];
+
+  cmEditor = CodeMirror.fromTextArea(codebox, {
+    mode: getCmMode(currentLangValue),
+    theme: themeCfg.cmTheme,
+    lineNumbers: true,
+    lineWrapping: true,
+    tabSize: 2,
+    indentUnit: 2,
+    indentWithTabs: false,
+    autoCloseBrackets: true,
+    matchBrackets: true,
+    styleActiveLine: true,
+    workTime: 100,
+    workDelay: 200,
+    maxHighlightLength: 10000,
+    viewportMargin: 10,
+    extraKeys: {
+      Tab: (cm) => {
+        if (cm.somethingSelected()) {
+          cm.indentSelection("add");
+        } else {
+          cm.replaceSelection("  ", "end");
+        }
+      },
+      "Shift-Tab": (cm) => {
+        cm.indentSelection("subtract");
       }
     }
-  }
+  });
 
-  const newText = arr.join("\n") + "\n";
-  if (lineNumbers.textContent !== newText) {
-    lineNumbers.textContent = newText;
-  }
-}
+  cmEditor.on("change", () => {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+      try {
+        localStorage.setItem("savedCode_" + currentLangValue, cmEditor.getValue());
+      } catch (e) {}
+    }, 300);
+  });
 
-function highlightJS() {
-  const code = codebox.value;
-  const lang = currentLangValue.replace("language-", "");
-  if (!codeBlock.classList.contains("hljs")) {
-    codeBlock.classList.add("hljs");
-  }
-  try {
-    if (typeof hljs !== "undefined") {
-      const validLang = (hljs.getLanguage && hljs.getLanguage(lang)) ? lang : null;
-      const res = validLang 
-        ? hljs.highlight(code, { language: validLang, ignoreIllegals: true }) 
-        : hljs.highlightAuto(code);
-      codeBlock.innerHTML = (res.value || "") + (code.endsWith("\n") ? " " : "");
-    } else {
-      codeBlock.textContent = code + (code.endsWith("\n") ? " " : "");
-    }
-  } catch (e) {
-    codeBlock.textContent = code + (code.endsWith("\n") ? " " : "");
+  const wrapper = document.getElementById("divCodeWrapper");
+  if (wrapper && typeof ResizeObserver !== "undefined" && !editorResizeObserver) {
+    editorResizeObserver = new ResizeObserver(() => {
+      if (wrapper.offsetParent !== null && cmEditor) {
+        cmEditor.refresh();
+      }
+    });
+    editorResizeObserver.observe(wrapper);
   }
 }
 
-function updateCode(immediateHighlight = false) {
-  highlightJS();
-  updateLineNumbers();
-  syncEditorScroll(codebox);
-
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    try {
-      localStorage.setItem("savedCode_" + currentLangValue, codebox.value);
-    } catch (e) {}
-  }, 300);
-}
-
-codebox.addEventListener("input", () => updateCode(false));
-
-let isSyncingScroll = false;
-function syncEditorScroll(source) {
-  if (isSyncingScroll) return;
-  isSyncingScroll = true;
-  if (source === codebox) {
-    codeBlock.scrollTop = codebox.scrollTop;
-    lineNumbers.scrollTop = codebox.scrollTop;
-  } else if (source === codeBlock) {
-    codebox.scrollTop = codeBlock.scrollTop;
-    lineNumbers.scrollTop = codeBlock.scrollTop;
-  }
-  isSyncingScroll = false;
-}
-
-codebox.addEventListener("scroll", () => syncEditorScroll(codebox));
-codeBlock.addEventListener("scroll", () => syncEditorScroll(codeBlock));
-window.addEventListener("resize", () => {
-  const htmlEl = document.getElementById("html");
-  if (htmlEl && htmlEl.style.display !== "none") {
-    cachedWidth = 0;
-    updateLineNumbers();
-    syncEditorScroll(codebox);
-  }
-});
-
-codebox.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const { selectionStart, selectionEnd, value } = codebox;
-    const spaces = "  ";
-    codebox.value = value.substring(0, selectionStart) + spaces + value.substring(selectionEnd);
-    codebox.selectionStart = codebox.selectionEnd = selectionStart + spaces.length;
-    updateCode(false);
-  }
-});
-
-const themeLink = document.getElementById("theme");
-document.getElementById("selectStyle").addEventListener("change", (e) => {
-  themeLink.onload = () => setTheme();
-  themeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/${e.target.value}.min.css`;
+document.getElementById("selectStyle").addEventListener("change", () => {
   setTheme();
 });
 
 function setTheme() {
   savePreEditorTheme();
-  const r = document.documentElement;
-  const tLink = document.getElementById("theme");
-  if (!tLink) return;
+  const styleSelect = document.getElementById("selectStyle");
+  const selectedStyle = styleSelect ? styleSelect.value : "base16/nord";
+  const themeCfg = EDITOR_THEME_MAP[selectedStyle] || EDITOR_THEME_MAP["base16/nord"];
 
-  const applyRules = () => {
-    const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === tLink);
-    if (!sheet) return false;
-    let rules;
-    try { rules = Array.from(sheet.cssRules || sheet.rules); } catch (e) { return false; }
-    if (!rules || rules.length === 0) return false;
+  if (cmEditor) {
+    cmEditor.setOption("theme", themeCfg.cmTheme);
+    requestAnimationFrame(() => refreshEditorMetrics());
+  }
 
-    const getStyle = (selector) => {
-      const rule = rules.find(rule => rule.selectorText && rule.selectorText.split(',').some(s => s.trim() === selector));
-      return rule ? rule.style : null;
-    };
-
-    const hljsStyle = getStyle(".hljs");
-    const commentStyle = getStyle(".hljs-comment");
-    const targetColor = (commentStyle && commentStyle.color) || (hljsStyle && hljsStyle.color);
-
-    if (hljsStyle && hljsStyle.color) {
-      codeBlock.style.color = hljsStyle.color;
-    }
-
-    if (targetColor) {
-      r.style.setProperty("--theme", targetColor);
-      highlightJS();
-      return true;
-    }
-    return false;
-  };
-
-  if (!applyRules()) {
-    let attempts = 0;
-    const interval = setInterval(() => {
-      attempts++;
-      if (applyRules() || attempts >= 25) clearInterval(interval);
-    }, 40);
+  const targetColor = probeThemeAccent(themeCfg);
+  if (targetColor) {
+    document.documentElement.style.setProperty("--theme", targetColor);
   }
 }
 
@@ -3104,7 +3033,10 @@ window.addEventListener("message", (e) => {
 
 let editorInitialized = false;
 function initEditorIfNeeded() {
-  if (editorInitialized) return;
+  if (editorInitialized) {
+    requestAnimationFrame(() => refreshEditorMetrics());
+    return;
+  }
   editorInitialized = true;
 
   const savedLang = getCookie("editorLanguage");
@@ -3117,37 +3049,43 @@ function initEditorIfNeeded() {
   const savedCollapsed = getCookie("htmlConsoleCollapsed");
   if (savedCollapsed !== null) isConsoleCollapsed = Boolean(savedCollapsed);
 
-  cachedWidth = 0;
   setupEditorPanels();
   updateEditorView();
 
   const savedData = localStorage.getItem("savedCode_" + currentLangValue);
-  if (savedData !== null) codebox.value = savedData;
-  else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
+  codebox.value = savedData !== null
+    ? savedData
+    : (currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON);
 
-  document.getElementById("codeBlock").className = "hljs " + currentLangValue;
-  updateCode(true);
+  createCodeMirrorIfNeeded();
+  requestAnimationFrame(() => refreshEditorMetrics());
 }
 
 document.getElementById("selectLanguage").addEventListener("change", function() {
-  try { localStorage.setItem("savedCode_" + currentLangValue, codebox.value); } catch (e) {}
+  try { localStorage.setItem("savedCode_" + currentLangValue, getEditorValue()); } catch (e) {}
   currentLangValue = this.value;
   setCookie("editorLanguage", currentLangValue, 30);
-  document.getElementById("codeBlock").className = "hljs " + currentLangValue;
   updateEditorView();
 
   const savedContent = localStorage.getItem("savedCode_" + currentLangValue);
-  if (savedContent !== null) codebox.value = savedContent;
-  else codebox.value = currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON;
+  const nextCode = savedContent !== null
+    ? savedContent
+    : (currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON);
 
-  updateCode(true);
+  if (cmEditor) {
+    cmEditor.setOption("mode", getCmMode(currentLangValue));
+  }
+  setEditorValue(nextCode);
   setTheme();
+  requestAnimationFrame(() => refreshEditorMetrics());
 });
 
 window.onload = function() { localStorage.clear(); };
 
 function runEditor() {
   initEditorIfNeeded();
+  if (cmEditor) cmEditor.save();
+
   const selectElement = document.getElementById("selectLanguage");
   const selectedIndex = selectElement ? selectElement.selectedIndex : 0;
 
@@ -3184,7 +3122,7 @@ window.addEventListener("unhandledrejection", function(e) {
 })();
 <\/script>`;
 
-    let code = codebox.value;
+    let code = getEditorValue();
     let fullHtml = code;
     if (code.includes("<head>")) fullHtml = code.replace("<head>", "<head>" + consoleShim);
     else if (code.includes("<html>")) fullHtml = code.replace("<html>", "<html><head>" + consoleShim + "</head>");
@@ -3232,7 +3170,7 @@ async function initializePyodide() {
 }
 
 async function evaluatePython() {
-  const pythonCode = codebox.value;
+  const pythonCode = typeof getEditorValue === "function" ? getEditorValue() : codebox.value;
   try {
     if (!window.pyodide) await initializePyodide();
     await pyodide.loadPackagesFromImports(pythonCode, addToOutput, addToOutput);
@@ -4634,11 +4572,12 @@ function syncPhosphorUserPrompt() {
 async function resolvePhosphorImage() {
   const kernelCandidates = [
     "https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/buildroot-bzimage68.bin",
+    "https://cdn.jsdelivr.net/gh/Hologram-Technologies/hologram-apps@921dbc0fcd17d2ae68b2908b8f9a369de6a09297/apps/buildroot6/images/buildroot-bzimage68.bin",
     "https://static.simonwillison.net/static/cors-allow/2026/buildroot-bzimage68.bin"
   ];
   for (const url of kernelCandidates) {
     try {
-      const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
+      const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(7000) });
       if (res.ok) return { type: "bzimage", url };
     } catch (_) {}
   }
@@ -4847,7 +4786,7 @@ async function initPhosphorOS() {
           if (setupTail.endsWith("__PHOSPHOR_READY__\r\n") || setupTail.endsWith("__PHOSPHOR_READY__\n")) {
             phosphorSuppressSerial = false;
             if (phosphorTerm) {
-              phosphorTerm.reset();
+              phosphorTerm.write("\r\x1b[K");
               PHOSPHOR_MOTD.split("\n").forEach(line => phosphorTerm.writeln(line));
               phosphorTerm.writeln("");
             }
@@ -5153,7 +5092,7 @@ function runWhenVisible(callback, delay = 0) {
 }
 
 const splashes = [
-  "Downloading virus...", "Sending search history to the FBI...", "Checking for heresy...", "Loading unspecified code...", "Pretending to do something very complicated...", "Drinking my 5th cup of coffee...", "Searching for where I left the data...", "Finding the motivation to continue...", "Overloading nuclear reactor...", "Purging the mutant, the alien, and the heretic...", "Waking up at 6 AM...", "Touching grass...", "For the God-Emperor!", "Ave Omnissiah!", "Now OSHA-compliant!", "Somehow, the script works!", "Now thermally-insulated with asbestos!", "Now with 100% less viruses!", "Now spontaneously combustible!", "Now with less sodium!", "No added sugars!", "Don't panic!", "9/9 doctors recommend!", "Always bet on red!", "Do 20 push-ups!", "Now gluten-free!", "*Insert text here*", "Technoblade never dies!", "Malware sold seperately", "Furries make for great target practice", "You are not the only one who can see what you search", "Enter at your own risk", "Houjen, please fix The TERMINAL", "I'm right behind you", "What is this even about, anyway?"
+  "Downloading virus...", "Sending search history to the FBI...", "Checking for heresy...", "Loading unspecified code...", "Pretending to do something very complicated...", "Drinking my 5th cup of coffee...", "Searching for where I left the data...", "Finding the motivation to continue...", "Overloading nuclear reactor...", "Purging the mutant, the alien, and the heretic...", "Waking up at 6 AM...", "Touching grass...", "For the Emperor!", "Praise the Omnissiah!", "Praise be to Space King!", "My life for Super Earth!", "For Democracy!", "Blood for the Blood God!", "WAAAGH!", "Amaze amaze amaze!", "Grace Rocky save stars!", "Now OSHA-compliant!", "Somehow, the script works!", "Now thermally-insulated with asbestos!", "Now with 100% less viruses!", "Now spontaneously combustible!", "Now with less sodium!", "No added sugars!", "Don't panic!", "9/9 doctors recommend!", "Always bet on red!", "Do 20 push-ups!", "Now gluten-free!", "*Insert text here*", "Technoblade never dies!", "Malware sold seperately", "Furries make for great target practice", "Did I mention that I absolutely despise furries?", "Humanity was born to rule the stars", "I'm watching you", "Enter at your own risk", "Houjen, please fix The TERMINAL", "I'm right behind you", "What is this even about, anyway?"
 ];
 
 async function bootSystem() {
@@ -5232,6 +5171,7 @@ function startSplash() {
 
 function showTerminal() {
   renderTabs();
+  document.getElementById("stdin").disabled = false;
   document.getElementById("stdin")?.focus();
   document.getElementById("terminalContent")?.classList.add("fade-in");
   document.getElementById("tabBar")?.classList.add("fade-in");
