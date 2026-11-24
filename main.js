@@ -750,20 +750,396 @@ function resolveRelative(refUrl, baseUrl) {
   }
 }
 
+function unescapeJsStringLiteral(raw) {
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch !== "\\") {
+      out += ch;
+      continue;
+    }
+    i++;
+    if (i >= raw.length) break;
+    const esc = raw[i];
+    if (esc === "n") out += "\n";
+    else if (esc === "r") out += "\r";
+    else if (esc === "t") out += "\t";
+    else if (esc === "b") out += "\b";
+    else if (esc === "f") out += "\f";
+    else if (esc === "v") out += "\v";
+    else if (esc === "0" && (i + 1 >= raw.length || raw[i + 1] < "0" || raw[i + 1] > "9")) out += "\0";
+    else if (esc === "x" && /^[0-9a-fA-F]{2}/.test(raw.slice(i + 1, i + 3))) {
+      out += String.fromCharCode(parseInt(raw.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else if (esc === "u") {
+      if (raw[i + 1] === "{") {
+        const endBrace = raw.indexOf("}", i + 2);
+        if (endBrace !== -1) {
+          out += String.fromCodePoint(parseInt(raw.slice(i + 2, endBrace), 16));
+          i = endBrace;
+        } else {
+          out += esc;
+        }
+      } else if (/^[0-9a-fA-F]{4}/.test(raw.slice(i + 1, i + 5))) {
+        out += String.fromCharCode(parseInt(raw.slice(i + 1, i + 5), 16));
+        i += 4;
+      } else {
+        out += esc;
+      }
+    } else if (esc === "\r") {
+      if (raw[i + 1] === "\n") i++;
+    } else if (esc === "\n") {
+      // line continuation
+    } else {
+      out += esc;
+    }
+  }
+  return out;
+}
+
+function scanProxyScript(code, scriptUrl, resolveStatic = false) {
+  if (!code || typeof code !== "string") return { chunks: [code || ""], deps: [] };
+  const n = code.length;
+  let i = 0;
+  let lastCopy = 0;
+  const chunks = [];
+  const deps = [];
+  const templateStack = [];
+  const parenStack = [];
+  let braceDepth = 0;
+  let canStartRegex = true;
+  let prevWord = "";
+
+  const REGEX_PRE_WORDS = new Set([
+    "return", "throw", "case", "delete", "void", "typeof",
+    "in", "instanceof", "new", "await", "yield", "else", "do", "of"
+  ]);
+  const CONTROL_PAREN_WORDS = new Set(["if", "while", "for", "with"]);
+
+  const isIdentStart = (c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_" || c === "$";
+  const isIdentPart = (c) => isIdentStart(c) || (c >= "0" && c <= "9");
+
+  function skipWsAndComments(pos) {
+    while (pos < n) {
+      const c = code[pos];
+      if (c === " " || c === "\t" || c === "\r" || c === "\n" || c === "\f" || c === "\v") {
+        pos++;
+      } else if (c === "/" && code[pos + 1] === "/") {
+        pos += 2;
+        while (pos < n && code[pos] !== "\r" && code[pos] !== "\n") pos++;
+      } else if (c === "/" && code[pos + 1] === "*") {
+        pos += 2;
+        while (pos + 1 < n && !(code[pos] === "*" && code[pos + 1] === "/")) pos++;
+        pos = pos + 1 < n ? pos + 2 : n;
+      } else {
+        break;
+      }
+    }
+    return pos;
+  }
+
+  function readStringLiteral(pos) {
+    const q = code[pos];
+    let p = pos + 1;
+    while (p < n) {
+      const c = code[p];
+      if (c === "\\") {
+        p += (p + 1 < n && code[p + 1] === "\r" && code[p + 2] === "\n") ? 3 : 2;
+      } else if (c === q) {
+        return { end: p + 1, value: unescapeJsStringLiteral(code.slice(pos + 1, p)) };
+      } else if (c === "\r" || c === "\n") {
+        return null;
+      } else {
+        p++;
+      }
+    }
+    return null;
+  }
+
+  function consumeTemplateTail(startPos) {
+    let p = startPos;
+    while (p < n) {
+      const c = code[p];
+      if (c === "\\") {
+        p += 2;
+      } else if (c === "`") {
+        p++;
+        canStartRegex = false;
+        prevWord = "";
+        return p;
+      } else if (c === "$" && code[p + 1] === "{") {
+        templateStack.push(braceDepth);
+        braceDepth++;
+        p += 2;
+        canStartRegex = true;
+        prevWord = "";
+        return p;
+      } else {
+        p++;
+      }
+    }
+    return n;
+  }
+
+  while (i < n) {
+    const ch = code[i];
+
+    if (ch === "/" && code[i + 1] === "/") {
+      i += 2;
+      while (i < n && code[i] !== "\r" && code[i] !== "\n") i++;
+      continue;
+    }
+
+    if (ch === "/" && code[i + 1] === "*") {
+      i += 2;
+      while (i + 1 < n && !(code[i] === "*" && code[i + 1] === "/")) i++;
+      i = i + 1 < n ? i + 2 : n;
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      const q = ch;
+      i++;
+      while (i < n) {
+        if (code[i] === "\\") i += 2;
+        else if (code[i] === q) { i++; break; }
+        else i++;
+      }
+      canStartRegex = false;
+      prevWord = "";
+      continue;
+    }
+
+    if (ch === "`") {
+      i = consumeTemplateTail(i + 1);
+      continue;
+    }
+
+    if (ch === "/" && canStartRegex) {
+      i++;
+      let inClass = false;
+      while (i < n) {
+        const rc = code[i];
+        if (rc === "\\") {
+          i += 2;
+        } else if (rc === "[") {
+          inClass = true;
+          i++;
+        } else if (rc === "]" && inClass) {
+          inClass = false;
+          i++;
+        } else if (rc === "/" && !inClass) {
+          i++;
+          while (i < n && isIdentPart(code[i])) i++;
+          break;
+        } else if (rc === "\r" || rc === "\n") {
+          break;
+        } else {
+          i++;
+        }
+      }
+      canStartRegex = false;
+      prevWord = "";
+      continue;
+    }
+
+    if (ch === "}") {
+      braceDepth--;
+      if (templateStack.length > 0 && braceDepth === templateStack[templateStack.length - 1]) {
+        templateStack.pop();
+        i = consumeTemplateTail(i + 1);
+        continue;
+      }
+      i++;
+      canStartRegex = true;
+      prevWord = "";
+      continue;
+    }
+
+    if (ch === "{") {
+      braceDepth++;
+      i++;
+      canStartRegex = true;
+      prevWord = "";
+      continue;
+    }
+
+    if (isIdentStart(ch)) {
+      const startPos = i;
+      let p = startPos - 1;
+      while (p >= 0 && (code[p] === " " || code[p] === "\t" || code[p] === "\r" || code[p] === "\n")) p--;
+      const afterDot = p >= 0 && code[p] === ".";
+
+      i++;
+      while (i < n && isIdentPart(code[i])) i++;
+      const word = code.slice(startPos, i);
+
+      if (!afterDot && scriptUrl) {
+        if (word === "import") {
+          const afterWs = skipWsAndComments(i);
+          if (code[afterWs] === ".") {
+            const p2 = skipWsAndComments(afterWs + 1);
+            if (code.slice(p2, p2 + 4) === "meta" && !isIdentPart(code[p2 + 4] || "")) {
+              const p3 = skipWsAndComments(p2 + 4);
+              if (code[p3] === ".") {
+                const p4 = skipWsAndComments(p3 + 1);
+                if (code.slice(p4, p4 + 3) === "url" && !isIdentPart(code[p4 + 3] || "")) {
+                  chunks.push(code.slice(lastCopy, startPos), JSON.stringify(scriptUrl));
+                  i = p4 + 3;
+                  lastCopy = i;
+                  canStartRegex = false;
+                  prevWord = "";
+                  continue;
+                }
+                if (code.slice(p4, p4 + 7) === "resolve" && !isIdentPart(code[p4 + 7] || "")) {
+                  const p5 = skipWsAndComments(p4 + 7);
+                  if (code[p5] === "(") {
+                    chunks.push(code.slice(lastCopy, startPos), "window.__proxyResolveModule(" + JSON.stringify(scriptUrl) + ",");
+                    parenStack.push(false);
+                    i = p5 + 1;
+                    lastCopy = i;
+                    canStartRegex = true;
+                    prevWord = "";
+                    continue;
+                  }
+                }
+              }
+            }
+          } else if (code[afterWs] === "(") {
+            let depth = 1;
+            let scan = afterWs + 1;
+            while (scan < n && depth > 0) {
+              const sc = code[scan];
+              if (sc === "'" || sc === '"') {
+                scan++;
+                while (scan < n) {
+                  if (code[scan] === "\\") scan += 2;
+                  else if (code[scan] === sc) { scan++; break; }
+                  else scan++;
+                }
+              } else if (sc === "`") {
+                scan++;
+                let tplDepth = 0;
+                while (scan < n) {
+                  if (code[scan] === "\\") scan += 2;
+                  else if (code[scan] === "$" && code[scan + 1] === "{") { tplDepth++; scan += 2; }
+                  else if (code[scan] === "}" && tplDepth > 0) { tplDepth--; scan++; }
+                  else if (code[scan] === "`" && tplDepth === 0) { scan++; break; }
+                  else scan++;
+                }
+              } else if (sc === "(") {
+                depth++;
+                scan++;
+              } else if (sc === ")") {
+                depth--;
+                scan++;
+              } else {
+                scan++;
+              }
+            }
+            const afterParen = depth === 0 ? skipWsAndComments(scan) : n;
+            if (code[afterParen] !== "{") {
+              chunks.push(code.slice(lastCopy, startPos), "window.__proxyImport(" + JSON.stringify(scriptUrl) + ",");
+              parenStack.push(false);
+              i = afterWs + 1;
+              lastCopy = i;
+              canStartRegex = true;
+              prevWord = "";
+              continue;
+            }
+          } else if (resolveStatic && braceDepth === 0 && parenStack.length === 0 && (code[afterWs] === "'" || code[afterWs] === '"')) {
+            const strInfo = readStringLiteral(afterWs);
+            if (strInfo) {
+              chunks.push(code.slice(lastCopy, afterWs), { depIdx: deps.length });
+              deps.push(strInfo.value);
+              i = strInfo.end;
+              lastCopy = i;
+              canStartRegex = false;
+              prevWord = "";
+              continue;
+            }
+          }
+        } else if (resolveStatic && word === "from" && braceDepth === 0 && parenStack.length === 0) {
+          const afterWs = skipWsAndComments(i);
+          if (code[afterWs] === "'" || code[afterWs] === '"') {
+            const strInfo = readStringLiteral(afterWs);
+            if (strInfo) {
+              chunks.push(code.slice(lastCopy, afterWs), { depIdx: deps.length });
+              deps.push(strInfo.value);
+              i = strInfo.end;
+              lastCopy = i;
+              canStartRegex = false;
+              prevWord = "";
+              continue;
+            }
+          }
+        }
+      }
+
+      canStartRegex = !afterDot && REGEX_PRE_WORDS.has(word);
+      prevWord = word;
+      continue;
+    }
+
+    if (ch >= "0" && ch <= "9") {
+      while (i < n && (isIdentPart(code[i]) || code[i] === ".")) i++;
+      canStartRegex = false;
+      prevWord = "";
+      continue;
+    }
+
+    if (ch === "(") {
+      parenStack.push(CONTROL_PAREN_WORDS.has(prevWord));
+      canStartRegex = true;
+      prevWord = "";
+      i++;
+      continue;
+    }
+
+    if (ch === ")") {
+      canStartRegex = parenStack.length > 0 ? Boolean(parenStack.pop()) : false;
+      prevWord = "";
+      i++;
+      continue;
+    }
+
+    if (ch === "]") {
+      canStartRegex = false;
+      prevWord = "";
+      i++;
+      continue;
+    }
+
+    if ((ch === "+" || ch === "-") && code[i + 1] === ch) {
+      canStartRegex = false;
+      prevWord = "";
+      i += 2;
+      continue;
+    }
+
+    if (";,[:?=!~+-*%<>&|^".includes(ch)) {
+      canStartRegex = true;
+      prevWord = "";
+      i++;
+      continue;
+    }
+
+    if (ch !== " " && ch !== "\t" && ch !== "\r" && ch !== "\n") {
+      prevWord = "";
+    }
+    i++;
+  }
+
+  chunks.push(code.slice(lastCopy));
+  return { chunks, deps };
+}
+
 function rewriteScriptCode(code, scriptUrl) {
   if (!code || typeof code !== 'string' || !scriptUrl) return code;
   try {
     const scriptBase = scriptUrl.substring(0, scriptUrl.lastIndexOf('/') + 1);
-    code = code.replace(/\bimport\.meta\.url\b/g, JSON.stringify(scriptUrl));
-    code = code.replace(/\bimport\s*\(\s*(['"`])(\.\.?\/[^'"`]+)\1\s*\)/g, (match, quote, relPath) => {
-      return `import(${quote}${resolveRelative(relPath, scriptBase)}${quote})`;
-    });
-    code = code.replace(/\b(from\s*)(['"`])(\.\.?\/[^'"`]+)\2/g, (match, fromClause, quote, relPath) => {
-      return `${fromClause}${quote}${resolveRelative(relPath, scriptBase)}${quote}`;
-    });
-    code = code.replace(/\b(import\s*)(['"`])(\.\.?\/[^'"`]+)\2/g, (match, importClause, quote, relPath) => {
-      return `${importClause}${quote}${resolveRelative(relPath, scriptBase)}${quote}`;
-    });
+    const scanned = scanProxyScript(code, scriptUrl, false);
+    code = scanned.chunks.join('');
     if (scriptBase && scriptBase.startsWith('http')) {
       code = `try { if (typeof self !== 'undefined') self.__webpack_public_path__ = ${JSON.stringify(scriptBase)}; } catch(e) {}; ` + code;
     }
@@ -950,30 +1326,109 @@ async function fetchAssetTunnel(url, asBinary = false) {
   }
 }
 
+function rewriteCssRelativeUrls(cssText, baseUrl) {
+  if (!cssText || typeof cssText !== "string") return cssText;
+  return cssText.replace(/url\(\s*(?:'([^']*)'|"([^"]*)"|([^)'"\s]+))\s*\)/gi, (full, q1, q2, q3) => {
+    const rawUrl = (q1 !== undefined ? q1 : (q2 !== undefined ? q2 : q3)) || "";
+    if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("blob:") || rawUrl.startsWith("#")) {
+      return full;
+    }
+    return `url("${resolveRelative(rawUrl, baseUrl)}")`;
+  });
+}
+
+async function resolveCssImports(cssText, baseUrl, depth = 0, seen = new Set()) {
+  if (!cssText || depth > 3) return cssText;
+  const importRegex = /@import\s+(?:url\(\s*(?:'([^']*)'|"([^"]*)"|([^)'"\s]+))\s*\)|'([^']*)'|"([^"]*)")\s*([^;]*);/gi;
+  const matches = [...cssText.matchAll(importRegex)];
+  if (matches.length === 0) return rewriteCssRelativeUrls(cssText, baseUrl);
+
+  const replacements = await Promise.all(matches.map(async (m) => {
+    const rawHref = m[1] || m[2] || m[3] || m[4] || m[5] || "";
+    const mediaQuery = (m[6] || "").trim();
+    if (!rawHref || rawHref.startsWith("data:")) return { full: m[0], replacement: m[0] };
+    const absUrl = resolveRelative(rawHref, baseUrl);
+    if (seen.has(absUrl)) return { full: m[0], replacement: "" };
+    seen.add(absUrl);
+    const importedCss = await fetchAssetTunnel(absUrl, false);
+    if (!importedCss) return { full: m[0], replacement: m[0] };
+    const resolvedInner = await resolveCssImports(importedCss, absUrl, depth + 1, seen);
+    return {
+      full: m[0],
+      replacement: mediaQuery ? `@media ${mediaQuery} {\n${resolvedInner}\n}` : resolvedInner
+    };
+  }));
+
+  for (const item of replacements) {
+    cssText = cssText.replace(item.full, item.replacement);
+  }
+  return rewriteCssRelativeUrls(cssText, baseUrl);
+}
+
 async function inlineCssUrls(cssText, baseUrl) {
-  const urlRegex = /url\((?:['"]?)(.*?)(?:['"]?)\)/gi;
+  if (!cssText || typeof cssText !== "string") return cssText;
+  const urlRegex = /url\(\s*(?:'([^']*)'|"([^"]*)"|([^)'"\s]+))\s*\)/gi;
   const matches = [...cssText.matchAll(urlRegex)];
+  const uniqueUrls = new Set();
 
   for (const match of matches) {
-    const rawUrl = match[1];
-    if (!rawUrl || rawUrl.startsWith("data:")) continue;
+    const rawUrl = (match[1] !== undefined ? match[1] : (match[2] !== undefined ? match[2] : match[3])) || "";
+    if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("blob:") || rawUrl.startsWith("#")) continue;
+    uniqueUrls.add(rawUrl);
+  }
 
-    const resolved = resolveRelative(rawUrl, baseUrl);
-    const dataUri = await fetchAssetTunnel(resolved, true);
-    if (dataUri) {
-      cssText = cssText.replace(match[0], `url("${dataUri}")`);
+  if (uniqueUrls.size === 0) return cssText;
+
+  const urlList = [...uniqueUrls];
+  const resolvedMap = new Map();
+  const CONCURRENCY = 6;
+  let idx = 0;
+
+  async function worker() {
+    while (idx < urlList.length) {
+      const rawUrl = urlList[idx++];
+      const resolved = resolveRelative(rawUrl, baseUrl);
+      const dataUri = await fetchAssetTunnel(resolved, true);
+      if (dataUri) resolvedMap.set(rawUrl, dataUri);
     }
   }
-  return cssText;
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, urlList.length) }, worker));
+
+  return cssText.replace(urlRegex, (full, q1, q2, q3) => {
+    const rawUrl = (q1 !== undefined ? q1 : (q2 !== undefined ? q2 : q3)) || "";
+    const dataUri = resolvedMap.get(rawUrl);
+    return dataUri ? `url("${dataUri}")` : full;
+  });
+}
+
+async function waitForIframeDocument(iframeTarget, expectedBlobUrl) {
+  if (!iframeTarget) return null;
+  for (let i = 0; i < 60; i++) {
+    try {
+      const win = iframeTarget.contentWindow;
+      const liveDoc = iframeTarget.contentDocument || win?.document;
+      if (liveDoc && liveDoc.readyState !== "uninitialized" && (!expectedBlobUrl || win?.location?.href === expectedBlobUrl)) {
+        return liveDoc;
+      }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 25));
+  }
+  try {
+    return iframeTarget.contentDocument || iframeTarget.contentWindow?.document || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
   const inlineCssToggleEl = document.getElementById("inlineCssToggle");
   const inlineCssEnabled = inlineCssToggleEl ? inlineCssToggleEl.textContent.includes("ON") : true;
 
-  const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel="stylesheet"]')] : [];
+  const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel~="stylesheet" i]')] : [];
+  const preInlinedStyles = inlineCssEnabled ? [...doc.querySelectorAll('style[data-proxy-style-id]')] : [];
   const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 60);
-  const totalElements = linkTags.length + imgTags.length;
+  const totalElements = linkTags.length + preInlinedStyles.length + imgTags.length;
   let remaining = totalElements;
 
   updateRemainingDisplay(remaining);
@@ -992,6 +1447,25 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
     if (statusText) statusText.textContent = `${pct}%`;
   };
 
+  const expectedBlobUrl = iframeTarget?.dataset?.blobUrl || "";
+
+  for (const styleEl of preInlinedStyles) {
+    const cssBase = styleEl.getAttribute("data-proxy-css-base") || baseUrl;
+    const styleId = styleEl.getAttribute("data-proxy-style-id");
+    const updatedCss = await inlineCssUrls(styleEl.textContent || "", cssBase);
+    if (updatedCss && updatedCss !== styleEl.textContent) {
+      styleEl.textContent = updatedCss;
+      try {
+        const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
+        if (liveDoc) {
+          const liveStyle = liveDoc.querySelector(`style[data-proxy-style-id="${CSS.escape(styleId)}"]`);
+          if (liveStyle) liveStyle.textContent = updatedCss;
+        }
+      } catch (_) {}
+    }
+    reportProgress();
+  }
+
   for (const link of linkTags) {
     const href = link.getAttribute("href");
     if (!href) {
@@ -1001,19 +1475,20 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
     const absUrl = resolveRelative(href, baseUrl);
     let rawCss = await fetchAssetTunnel(absUrl, false);
     if (rawCss) {
+      rawCss = await resolveCssImports(rawCss, absUrl);
       rawCss = await inlineCssUrls(rawCss, absUrl);
       const styleTag = doc.createElement("style");
       styleTag.textContent = rawCss;
       link.replaceWith(styleTag);
 
       try {
-        const liveDoc = iframeTarget && (iframeTarget.contentDocument || iframeTarget.contentWindow?.document);
+        const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
         if (liveDoc) {
           const liveLink = liveDoc.querySelector(`link[href="${CSS.escape(href)}"]`);
           const liveStyle = liveDoc.createElement("style");
           liveStyle.textContent = rawCss;
           if (liveLink) liveLink.replaceWith(liveStyle);
-          else (liveDoc.head || liveDoc.documentElement).appendChild(liveStyle);
+          else if (liveDoc.head || liveDoc.documentElement) (liveDoc.head || liveDoc.documentElement).appendChild(liveStyle);
         }
       } catch (_) {}
     }
@@ -1032,7 +1507,7 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
       img.setAttribute("src", dataUri);
       img.removeAttribute("srcset");
       try {
-        const liveDoc = iframeTarget && (iframeTarget.contentDocument || iframeTarget.contentWindow?.document);
+        const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
         if (liveDoc) {
           const liveImg = liveDoc.querySelector(`img[src="${CSS.escape(src)}"]`);
           if (liveImg) {
@@ -1108,7 +1583,7 @@ function buildClientShim(targetUrl) {
               dispatchEvent: () => false
             };
           }
-          return origMatchMedia ? origMatchMedia.apply(this, arguments) : { matches: false, media: query };
+          return origMatchMedia ? origMatchMedia.apply(window, arguments) : { matches: false, media: query };
         };
       } catch (e) {}
 
@@ -1230,20 +1705,16 @@ function buildClientShim(targetUrl) {
           .replace(/(?<![\\w$.])location\\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\\b/g, "__proxyLocation.$1");
       }
 
+      ${unescapeJsStringLiteral.toString().replace(/<\/script/gi, "<\\/script")}
+      ${scanProxyScript.toString().replace(/<\/script/gi, "<\\/script")}
+      ${rewriteCssRelativeUrls.toString().replace(/<\/script/gi, "<\\/script")}
+
       function rewriteScriptCodeInShim(code, scriptUrl) {
         if (!code || typeof code !== 'string' || !scriptUrl) return code;
         try {
           const scriptBase = scriptUrl.substring(0, scriptUrl.lastIndexOf('/') + 1);
-          code = code.replace(/\\bimport\\.meta\\.url\\b/g, JSON.stringify(scriptUrl));
-          code = code.replace(/\\bimport\\s*\\(\\s*(['"\`])(\\.\\.?\\/[^'"\`]+)\\1\\s*\\)/g, function(match, quote, relPath) {
-            return 'import(' + quote + new URL(relPath, scriptBase).href + quote + ')';
-          });
-          code = code.replace(/\\b(from\\s*)(['"\`])(\\.\\.?\\/[^'"\`]+)\\2/g, function(match, fromClause, quote, relPath) {
-            return fromClause + quote + new URL(relPath, scriptBase).href + quote;
-          });
-          code = code.replace(/\\b(import\\s*)(['"\`])(\\.\\.?\\/[^'"\`]+)\\2/g, function(match, importClause, quote, relPath) {
-            return importClause + quote + new URL(relPath, scriptBase).href + quote;
-          });
+          const scanned = scanProxyScript(code, scriptUrl, false);
+          code = scanned.chunks.join('');
           if (scriptBase && scriptBase.startsWith('http')) {
             code = 'try { if (typeof self !== "undefined") self.__webpack_public_path__ = ' + JSON.stringify(scriptBase) + '; } catch(e) {}; ' + code;
           }
@@ -1357,7 +1828,7 @@ function buildClientShim(targetUrl) {
               try {
                 return new OrigURL(TARGET_URL);
               } catch (_) {
-                return Object.create(OrigURL.prototype);
+                return { href: safeUrl, origin: '', protocol: '', host: '', hostname: '', port: '', pathname: safeUrl, search: '', hash: '', searchParams: new URLSearchParams(), toString: () => safeUrl, toJSON: () => safeUrl };
               }
             }
           }
@@ -1366,6 +1837,7 @@ function buildClientShim(targetUrl) {
         ProxiedURL.createObjectURL = OrigURL.createObjectURL ? OrigURL.createObjectURL.bind(OrigURL) : undefined;
         ProxiedURL.revokeObjectURL = OrigURL.revokeObjectURL ? OrigURL.revokeObjectURL.bind(OrigURL) : undefined;
         ProxiedURL.canParse = OrigURL.canParse ? OrigURL.canParse.bind(OrigURL) : undefined;
+        ProxiedURL.parse = OrigURL.parse ? OrigURL.parse.bind(OrigURL) : undefined;
         window.URL = ProxiedURL;
       } catch (e) {}
 
@@ -1417,6 +1889,232 @@ function buildClientShim(targetUrl) {
           }, "*");
         });
       }
+
+      const moduleBlobCache = new Map();
+      const inFlightTextFetches = new Map();
+      const inFlightBlobs = new Map();
+      const inFlightDeps = new Map();
+      let cachedImportMap = null;
+
+      function getImportMap() {
+        if (cachedImportMap) return cachedImportMap;
+        const merged = { imports: {}, scopes: {} };
+        try {
+          document.querySelectorAll('script[type="importmap"]').forEach(el => {
+            if (!el.textContent) return;
+            const parsed = JSON.parse(el.textContent);
+            if (parsed && parsed.imports) Object.assign(merged.imports, parsed.imports);
+            if (parsed && parsed.scopes) {
+              Object.keys(parsed.scopes).forEach(scopeKey => {
+                merged.scopes[scopeKey] = Object.assign(merged.scopes[scopeKey] || {}, parsed.scopes[scopeKey]);
+              });
+            }
+          });
+        } catch (e) {}
+        cachedImportMap = merged;
+        return merged;
+      }
+
+      function matchImportMapTable(specifier, table) {
+        if (!table) return null;
+        if (Object.prototype.hasOwnProperty.call(table, specifier)) {
+          return table[specifier];
+        }
+        let bestPrefix = "";
+        for (const key in table) {
+          if (key.endsWith("/") && specifier.startsWith(key) && key.length > bestPrefix.length) {
+            bestPrefix = key;
+          }
+        }
+        if (bestPrefix) {
+          return table[bestPrefix] + specifier.slice(bestPrefix.length);
+        }
+        return null;
+      }
+
+      function resolveModuleSpecifier(specifier, baseUrl) {
+        const spec = String(specifier || "").trim();
+        if (!spec) return baseUrl || TARGET_URL;
+        if (spec.startsWith("blob:") || spec.startsWith("data:")) return spec;
+        const base = baseUrl || TARGET_URL;
+        try {
+          const im = getImportMap();
+          if (im.scopes) {
+            let bestScope = "";
+            for (const sKey in im.scopes) {
+              const absScope = new URL(sKey, TARGET_URL).href;
+              if (base.startsWith(absScope) && absScope.length > bestScope.length) {
+                bestScope = absScope;
+                const mapped = matchImportMapTable(spec, im.scopes[sKey]);
+                if (mapped) return new URL(mapped, TARGET_URL).href;
+              }
+            }
+          }
+          const topMapped = matchImportMapTable(spec, im.imports);
+          if (topMapped) return new URL(topMapped, TARGET_URL).href;
+        } catch (e) {}
+        try {
+          return new URL(spec, base).href;
+        } catch (e) {
+          return resolveTarget(spec);
+        }
+      }
+
+      function getHeaderVal(headers, name) {
+        if (!headers) return "";
+        const lower = name.toLowerCase();
+        if (typeof headers.get === "function") return headers.get(name) || headers.get(lower) || "";
+        if (Array.isArray(headers)) {
+          const found = headers.find(([k]) => String(k).toLowerCase() === lower);
+          return found ? found[1] : "";
+        }
+        if (typeof headers === "object") {
+          for (const k of Object.keys(headers)) {
+            if (k.toLowerCase() === lower) return headers[k];
+          }
+        }
+        return "";
+      }
+
+      function fetchModuleResource(reqUrl) {
+        if (inFlightTextFetches.has(reqUrl)) return inFlightTextFetches.get(reqUrl);
+        const promise = (async () => {
+          let curUrl = reqUrl;
+          for (let hop = 0; hop < 6; hop++) {
+            const res = await executeTunnelRequest(curUrl, {
+              method: "GET",
+              headers: {
+                "User-Agent": SPOOFED_UA,
+                "Accept": "*/*",
+                "Referer": TARGET_URL
+              }
+            });
+            const status = res && typeof res.status === "number" ? res.status : 200;
+            if (status >= 300 && status < 400) {
+              const loc = getHeaderVal(res.headers, "location");
+              if (loc) {
+                curUrl = new URL(loc, curUrl).href;
+                continue;
+              }
+            }
+            if (status >= 400) {
+              throw new Error("Failed to fetch module: " + curUrl + " (HTTP " + status + ")");
+            }
+            const buf = await res.arrayBuffer();
+            const contentType = getHeaderVal(res.headers, "content-type").toLowerCase();
+            const finalUrl = res.url || curUrl;
+            const isJson = contentType.includes("json") || finalUrl.split(/[?#]/)[0].toLowerCase().endsWith(".json");
+            const code = isJson ? "" : new TextDecoder("utf-8").decode(buf);
+            return { url: finalUrl, buf, code, isJson };
+          }
+          throw new Error("Too many redirects fetching module: " + reqUrl);
+        })();
+        inFlightTextFetches.set(reqUrl, promise);
+        promise.finally(() => { inFlightTextFetches.delete(reqUrl); });
+        return promise;
+      }
+
+      function wouldDeadlock(fromUrl, toUrl) {
+        if (!fromUrl) return false;
+        if (fromUrl === toUrl) return true;
+        const visited = new Set();
+        const queue = [toUrl];
+        while (queue.length > 0) {
+          const cur = queue.shift();
+          if (cur === fromUrl) return true;
+          if (visited.has(cur)) continue;
+          visited.add(cur);
+          const deps = inFlightDeps.get(cur);
+          if (deps) deps.forEach(d => queue.push(d));
+        }
+        return false;
+      }
+
+      async function loadModuleCodeAsBlob(rawCode, moduleUrl, isJson, rawBuf, cycleOwnerUrl) {
+        if (isJson) {
+          const jsonBlob = new Blob([rawBuf], { type: "application/json" });
+          return URL.createObjectURL(jsonBlob);
+        }
+        const scanned = scanProxyScript(rawCode, moduleUrl, true);
+        let depUrls = [];
+        if (scanned.deps.length > 0) {
+          const resolvedDeps = scanned.deps.map(spec => resolveModuleSpecifier(spec, moduleUrl));
+          if (cycleOwnerUrl) {
+            let depSet = inFlightDeps.get(cycleOwnerUrl);
+            if (!depSet) {
+              depSet = new Set();
+              inFlightDeps.set(cycleOwnerUrl, depSet);
+            }
+            resolvedDeps.forEach(d => depSet.add(d));
+          }
+          depUrls = await Promise.all(resolvedDeps.map(depUrl => {
+            if (depUrl.startsWith("blob:") || depUrl.startsWith("data:")) return Promise.resolve(depUrl);
+            if (cycleOwnerUrl && wouldDeadlock(cycleOwnerUrl, depUrl)) {
+              return Promise.resolve(depUrl);
+            }
+            return loadModuleAsBlob(depUrl, cycleOwnerUrl);
+          }));
+        }
+        let rewritten = "";
+        for (let idx = 0; idx < scanned.chunks.length; idx++) {
+          const part = scanned.chunks[idx];
+          if (typeof part === "string") {
+            rewritten += sanitizeCode(part);
+          } else {
+            rewritten += JSON.stringify(depUrls[part.depIdx]);
+          }
+        }
+        const modBlob = new Blob([rewritten], { type: "application/javascript" });
+        return URL.createObjectURL(modBlob);
+      }
+
+      async function loadModuleAsBlob(moduleUrl, waiterUrl) {
+        if (moduleUrl.startsWith("blob:") || moduleUrl.startsWith("data:")) return moduleUrl;
+        if (moduleBlobCache.has(moduleUrl)) return moduleBlobCache.get(moduleUrl);
+        if (inFlightBlobs.has(moduleUrl) && !wouldDeadlock(waiterUrl, moduleUrl)) {
+          return await inFlightBlobs.get(moduleUrl);
+        }
+        const buildPromise = (async () => {
+          const resource = await fetchModuleResource(moduleUrl);
+          const finalUrl = resource.url || moduleUrl;
+          if (finalUrl !== moduleUrl && moduleBlobCache.has(finalUrl)) {
+            const cached = moduleBlobCache.get(finalUrl);
+            moduleBlobCache.set(moduleUrl, cached);
+            return cached;
+          }
+          const blobUrl = await loadModuleCodeAsBlob(resource.code, finalUrl, resource.isJson, resource.buf, moduleUrl);
+          moduleBlobCache.set(moduleUrl, blobUrl);
+          moduleBlobCache.set(finalUrl, blobUrl);
+          return blobUrl;
+        })();
+        if (!inFlightBlobs.has(moduleUrl)) {
+          inFlightBlobs.set(moduleUrl, buildPromise);
+        }
+        try {
+          return await buildPromise;
+        } finally {
+          if (inFlightBlobs.get(moduleUrl) === buildPromise) inFlightBlobs.delete(moduleUrl);
+          inFlightDeps.delete(moduleUrl);
+        }
+      }
+
+      window.__proxyResolveModule = resolveModuleSpecifier;
+      window.__proxyImport = async function(baseUrl, specifier, options) {
+        const resolved = resolveModuleSpecifier(specifier, baseUrl);
+        if (resolved.startsWith("blob:") || resolved.startsWith("data:")) {
+          return options !== undefined ? import(resolved, options) : import(resolved);
+        }
+        const blobUrl = await loadModuleAsBlob(resolved, null);
+        return options !== undefined ? import(blobUrl, options) : import(blobUrl);
+      };
+      window.__proxyRunModule = async function(rawCode, moduleUrl) {
+        const blobUrl = await loadModuleCodeAsBlob(rawCode, moduleUrl || TARGET_URL, false, null, null);
+        return import(blobUrl);
+      };
+      window.__proxyPreloadModule = function(url) {
+        if (!url || url.startsWith("blob:") || url.startsWith("data:")) return Promise.resolve();
+        return loadModuleAsBlob(url, null).catch(() => {});
+      };
 
       function patchImage(img) {
         if (img.__proxied) return;
@@ -1497,6 +2195,23 @@ function buildClientShim(targetUrl) {
             set: (val) => {
               scriptSrc = resolveTarget(val);
               origSetAttribute('data-proxied-src', scriptSrc);
+              if ((el.type || '').toLowerCase() === 'module') {
+                loadModuleAsBlob(scriptSrc, null)
+                  .then((blobUrl) => import(blobUrl))
+                  .then(() => {
+                    el.dispatchEvent(new Event('load'));
+                    if (typeof el.onload === 'function') {
+                      try { el.onload(new Event('load')); } catch(e) {}
+                    }
+                  })
+                  .catch(() => {
+                    el.dispatchEvent(new Event('error'));
+                    if (typeof el.onerror === 'function') {
+                      try { el.onerror(new Event('error')); } catch(e) {}
+                    }
+                  });
+                return;
+              }
               executeTunnelRequest(scriptSrc, { method: 'GET' })
                 .then(async (res) => {
                   const buf = await res.arrayBuffer();
@@ -1543,33 +2258,87 @@ function buildClientShim(targetUrl) {
           };
         } else if (tag === 'link') {
           const origSetAttr = el.setAttribute.bind(el);
+          const origRelDesc = typeof HTMLLinkElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'rel') : null;
           let linkHref = '';
+          let linkProcessed = false;
+          function handleLinkActivation() {
+            if (!linkHref || linkProcessed) return;
+            const relVal = (el.getAttribute('rel') || (origRelDesc && origRelDesc.get ? origRelDesc.get.call(el) : '') || '').toLowerCase();
+            const relTokens = relVal.split(/\\s+/).filter(Boolean);
+            if (relTokens.length === 0) return;
+            linkProcessed = true;
+            if (relTokens.includes('stylesheet')) {
+              executeTunnelRequest(linkHref, { method: 'GET' }).then(async res => {
+                const buf = await res.arrayBuffer();
+                const css = rewriteCssRelativeUrls(new TextDecoder().decode(buf), res.url || linkHref);
+                const s = origCreateElement('style');
+                s.textContent = css;
+                (document.head || document.documentElement).appendChild(s);
+                el.dispatchEvent(new Event('load'));
+                if (typeof el.onload === 'function') el.onload(new Event('load'));
+              }).catch(() => {
+                el.dispatchEvent(new Event('error'));
+                if (typeof el.onerror === 'function') el.onerror(new Event('error'));
+              });
+            } else if (relTokens.includes('modulepreload') || (relTokens.includes('preload') && (el.getAttribute('as') || '').toLowerCase() === 'script')) {
+              window.__proxyPreloadModule(linkHref).finally(() => {
+                el.dispatchEvent(new Event('load'));
+                if (typeof el.onload === 'function') el.onload(new Event('load'));
+              });
+            } else if (relTokens.includes('preload') || relTokens.includes('prefetch') || relTokens.includes('dns-prefetch') || relTokens.includes('preconnect')) {
+              el.dispatchEvent(new Event('load'));
+              if (typeof el.onload === 'function') el.onload(new Event('load'));
+            } else {
+              origSetAttr('href', linkHref);
+            }
+          }
+          if (origRelDesc && origRelDesc.configurable !== false) {
+            Object.defineProperty(el, 'rel', {
+              get: () => origRelDesc.get ? origRelDesc.get.call(el) : (el.getAttribute('rel') || ''),
+              set: (val) => {
+                if (origRelDesc.set) origRelDesc.set.call(el, val);
+                else origSetAttr('rel', val);
+                const tokens = String(val || '').toLowerCase().split(/\\s+/).filter(Boolean);
+                if (tokens.includes('stylesheet')) linkProcessed = false;
+                if (linkHref) handleLinkActivation();
+              },
+              configurable: true
+            });
+          }
           Object.defineProperty(el, 'href', {
             get: () => linkHref,
             set: (val) => {
               linkHref = resolveTarget(val);
+              linkProcessed = false;
               origSetAttr('data-proxied-href', linkHref);
-              if (el.rel && el.rel.includes('stylesheet')) {
-                executeTunnelRequest(linkHref, { method: 'GET' }).then(async res => {
-                  const buf = await res.arrayBuffer();
-                  const css = new TextDecoder().decode(buf);
-                  const s = origCreateElement('style');
-                  s.textContent = css;
-                  (document.head || document.documentElement).appendChild(s);
-                  el.dispatchEvent(new Event('load'));
-                  if (typeof el.onload === 'function') el.onload(new Event('load'));
-                }).catch(() => {
-                  el.dispatchEvent(new Event('error'));
-                });
+              if (el.getAttribute('rel') || (origRelDesc && origRelDesc.get && origRelDesc.get.call(el))) {
+                handleLinkActivation();
               } else {
-                origSetAttr('href', linkHref);
+                queueMicrotask(() => {
+                  if (!linkProcessed && linkHref) {
+                    if (el.getAttribute('rel') || (origRelDesc && origRelDesc.get && origRelDesc.get.call(el))) handleLinkActivation();
+                    else {
+                      linkProcessed = true;
+                      origSetAttr('href', linkHref);
+                    }
+                  }
+                });
               }
             },
             configurable: true
           });
           el.setAttribute = function(name, val) {
-            if (name && name.toLowerCase() === 'href') el.href = val;
-            else origSetAttr(name, val);
+            const lname = name ? name.toLowerCase() : '';
+            if (lname === 'href') {
+              el.href = val;
+            } else {
+              origSetAttr(name, val);
+              if (lname === 'rel') {
+                const tokens = String(val || '').toLowerCase().split(/\\s+/).filter(Boolean);
+                if (tokens.includes('stylesheet')) linkProcessed = false;
+                if (linkHref) handleLinkActivation();
+              }
+            }
           };
         } else if (tag === 'img') {
           patchImage(el);
@@ -1594,7 +2363,7 @@ function buildClientShim(targetUrl) {
       window.fetch = async function(input, init = {}) {
         let rawUrl = (typeof input === "string") ? input : (input && input.url ? input.url : String(input));
         if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("javascript:")) {
-          return origFetch.apply(this, arguments);
+          return origFetch.apply(window, arguments);
         }
 
         const resolved = resolveTarget(rawUrl);
@@ -1688,6 +2457,27 @@ function buildClientShim(targetUrl) {
         xhr.responseType = "";
         xhr.responseURL = "";
         xhr.responseXML = null;
+        xhr.withCredentials = false;
+        xhr.timeout = 0;
+        xhr.upload = {
+          addEventListener: function() {},
+          removeEventListener: function() {},
+          onprogress: null,
+          onload: null,
+          onerror: null,
+          onabort: null,
+          onloadstart: null,
+          onloadend: null,
+          ontimeout: null
+        };
+        xhr.ontimeout = null;
+        xhr.onprogress = null;
+        xhr.onloadstart = null;
+        xhr.onloadend = null;
+        xhr.onload = null;
+        xhr.onerror = null;
+        xhr.onabort = null;
+        xhr.onreadystatechange = null;
 
         const _listeners = {};
         xhr.addEventListener = function(type, fn) {
@@ -1794,7 +2584,12 @@ function buildClientShim(targetUrl) {
           });
         };
       }
-      ProxiedXMLHttpRequest.prototype = OrigXHR ? OrigXHR.prototype : Object.prototype;
+      ProxiedXMLHttpRequest.UNSENT = 0;
+      ProxiedXMLHttpRequest.OPENED = 1;
+      ProxiedXMLHttpRequest.HEADERS_RECEIVED = 2;
+      ProxiedXMLHttpRequest.LOADING = 3;
+      ProxiedXMLHttpRequest.DONE = 4;
+      ProxiedXMLHttpRequest.prototype = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 };
       window.XMLHttpRequest = ProxiedXMLHttpRequest;
 
       if (navigator.sendBeacon) {
@@ -1805,9 +2600,10 @@ function buildClientShim(targetUrl) {
       }
 
       window.onerror = function(msg, url, line, col) {
+        const srcTag = url ? ' @ ' + String(url).split('/').slice(-1)[0] : '';
         window.parent.postMessage({
           type: 'PROXY_CONSOLE_ERROR',
-          text: msg + (line ? ' (' + line + (col ? ':' + col : '') + ')' : '')
+          text: msg + (line ? ' (' + line + (col ? ':' + col : '') + ')' : '') + srcTag
         }, '*');
       };
       window.addEventListener('unhandledrejection', function(e) {
@@ -2089,6 +2885,52 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     await Promise.allSettled(fragmentPromises);
   }
 
+  const inlineCssToggleEl = document.getElementById("inlineCssToggle");
+  const inlineCssEnabled = inlineCssToggleEl ? inlineCssToggleEl.textContent.includes("ON") : true;
+
+  if (inlineCssEnabled) {
+    const stylesheetLinks = [...doc.querySelectorAll('link[rel~="stylesheet" i], link[rel~="preload" i][as="style" i]')];
+    let styleCounter = 0;
+    await Promise.allSettled(stylesheetLinks.map(async (link) => {
+      const relLower = (link.getAttribute("rel") || "").toLowerCase();
+      const isPreloadStyle = !relLower.includes("stylesheet") && link.hasAttribute("onload");
+      if (!relLower.includes("stylesheet") && !isPreloadStyle) return;
+      const href = link.getAttribute("href");
+      if (!href) return;
+      const absUrl = resolveRelative(href, targetUrl);
+      let rawCss = await fetchAssetTunnel(absUrl, false);
+      if (rawCss) {
+        rawCss = await resolveCssImports(rawCss, absUrl);
+        const styleTag = doc.createElement("style");
+        styleTag.setAttribute("data-proxy-style-id", String(++styleCounter));
+        styleTag.setAttribute("data-proxy-css-base", absUrl);
+        const media = link.getAttribute("media");
+        if (media && media !== "all" && !(media === "print" && link.hasAttribute("onload"))) {
+          styleTag.setAttribute("media", media);
+        }
+        styleTag.textContent = rawCss;
+        link.replaceWith(styleTag);
+      } else {
+        link.setAttribute("href", absUrl);
+      }
+    }));
+  }
+
+  doc.querySelectorAll('link[rel~="modulepreload" i], link[rel~="prefetch" i], link[rel~="dns-prefetch" i], link[rel~="preconnect" i], link[rel~="preload" i][as="script" i], link[rel~="preload" i][as="style" i]').forEach(el => {
+    const href = el.getAttribute("href");
+    if (href) {
+      el.setAttribute("data-proxied-href", resolveRelative(href, targetUrl));
+      el.removeAttribute("href");
+    }
+  });
+
+  const isJsScriptType = (typeStr) => {
+    if (!typeStr) return true;
+    const mime = typeStr.trim().toLowerCase().split(";")[0].trim();
+    return !mime || ["text/javascript", "application/javascript", "application/ecmascript", "text/ecmascript", "text/jscript", "module"].includes(mime);
+  };
+  const safeScriptJson = (val) => JSON.stringify(val).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+
   const externalScripts = [...doc.querySelectorAll("script[src]")];
   await Promise.allSettled(externalScripts.map(async (script) => {
     const rawSrc = script.getAttribute("src");
@@ -2098,8 +2940,15 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
       if (scriptContent) {
         script.setAttribute("data-proxied-src", absSrc);
         script.removeAttribute("src");
-        const rewritten = rewriteScriptCode(scriptContent, absSrc);
-        script.textContent = sanitizeCode(rewritten).replace(/<\/script/gi, "<\\/script");
+        const isModule = (script.type || "").trim().toLowerCase() === "module";
+        if (isModule && scanProxyScript(scriptContent, absSrc, true).deps.length > 0) {
+          script.textContent = "await window.__proxyRunModule(" + safeScriptJson(scriptContent) + "," + safeScriptJson(absSrc) + ");";
+          script.setAttribute("data-proxy-module-wrapped", "1");
+        } else {
+          const rewritten = rewriteScriptCode(scriptContent, absSrc);
+          script.textContent = sanitizeCode(rewritten).replace(/<\/script/gi, "<\\/script");
+          script.setAttribute("data-proxy-rewritten", "1");
+        }
       } else {
         script.setAttribute("src", absSrc);
         script.setAttribute("data-proxied-src", absSrc);
@@ -2109,27 +2958,38 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
 
   doc.querySelectorAll("script").forEach(script => {
     if (script.textContent) {
-      if (script.type === "importmap" || script.type === "application/json" || script.type === "application/ld+json") {
+      if (script.hasAttribute("data-proxy-module-wrapped")) {
+        script.removeAttribute("data-proxy-module-wrapped");
         return;
       }
-      let code = script.textContent;
-      if (/(top\.location|window\.top\.location|parent\.location)\s*=/i.test(code)) {
-        code = code.replace(/(top\.location|window\.top\.location|parent\.location)\s*=/gi, "window.__dummyLocation =");
+      if (!isJsScriptType(script.type)) {
+        return;
       }
-      code = code.replace(/\bwindow\.top\b/g, "window.self");
-      code = code.replace(/\bwindow\.location\b/g, "window.__proxyLocation");
-      code = code.replace(/\bdocument\.location\b/g, "window.__proxyLocation");
-      code = code.replace(/(?<![\w$.])location\.(href|protocol|host|hostname|port|pathname|search|hash|origin|assign|replace|reload)\b/g, "__proxyLocation.$1");
-      script.textContent = code.replace(/<\/script/gi, "<\\/script");
+      if (script.hasAttribute("data-proxy-rewritten")) {
+        script.removeAttribute("data-proxy-rewritten");
+        return;
+      }
+      const rawCode = script.textContent;
+      const isModule = (script.type || "").trim().toLowerCase() === "module";
+      if (isModule && scanProxyScript(rawCode, targetUrl, true).deps.length > 0) {
+        script.textContent = "await window.__proxyRunModule(" + safeScriptJson(rawCode) + "," + safeScriptJson(targetUrl) + ");";
+        return;
+      }
+      const rewritten = rewriteScriptCode(rawCode, targetUrl);
+      script.textContent = sanitizeCode(rewritten).replace(/<\/script/gi, "<\\/script");
     }
   });
 
   const styleTags = [...doc.querySelectorAll("style")];
-  for (const style of styleTags) {
-    if (style.textContent && style.textContent.includes("url(")) {
-      style.textContent = await inlineCssUrls(style.textContent, targetUrl);
+  await Promise.allSettled(styleTags.map(async (style) => {
+    if (style.textContent) {
+      const cssBase = style.getAttribute("data-proxy-css-base") || targetUrl;
+      style.textContent = await resolveCssImports(style.textContent, cssBase);
+      if (!style.hasAttribute("data-proxy-style-id") && style.textContent.includes("url(")) {
+        style.textContent = await inlineCssUrls(style.textContent, cssBase);
+      }
     }
-  }
+  }));
 
   const scriptTag = doc.createElement("script");
   scriptTag.textContent = buildClientShim(targetUrl);
