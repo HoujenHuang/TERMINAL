@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anonymous+Pro&family=Courier+Prime&family=Cousine&family=Cutive+Mono&family=Fira+Code&family=Fira+Mono&family=IBM+Plex+Mono&family=Inconsolata&family=JetBrains+Mono&family=Nanum+Gothic+Coding&family=Noto+Sans+Mono&family=PT+Mono&family=Roboto+Mono&family=Share+Tech+Mono&family=Source+Code+Pro&family=Space+Mono&family=Ubuntu+Mono&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/frontend/styles.css">
 
   <!-- Dependencies -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css" crossorigin="anonymous">
@@ -555,7 +555,56 @@
     </filter>
   </svg>
 
-  <script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/main.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/panel.js"></script>
+  <script>
+    const configUrl = 'https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/frontend/config.json';
+
+    window.config = window.config || null;
+    window.API_GATEWAY = window.API_GATEWAY || '';
+    window.WISP_URL = window.WISP_URL || '';
+
+    function normalizeGatewayUrl(raw) {
+      if (!raw || typeof raw !== 'string') return '';
+      const trimmed = raw.trim().replace(/\/+$/, '');
+      if (!trimmed) return '';
+      return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    }
+
+    function extractHost(raw) {
+      if (!raw || typeof raw !== 'string') return '';
+      try {
+        const normalized = /^https?:\/\//i.test(raw)
+          ? raw
+          : `https://${raw.replace(/^(wss?|wisps?):\/\//i, '')}`;
+        return new URL(normalized).host;
+      } catch (_) {
+        return raw.trim().replace(/^(https?|wss?|wisps?):\/\//i, '').replace(/\/.*$/, '');
+      }
+    }
+
+    window.configReady = (async function initApp() {
+      try {
+        const response = await fetch(configUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const config = await response.json();
+        window.config = config;
+
+        const rawGateway = config.API_GATEWAY || '';
+        window.API_GATEWAY = normalizeGatewayUrl(rawGateway);
+        window.WISP_URL = extractHost(config.WISP_URL || rawGateway);
+
+        console.log('Loaded config:', config);
+        return config;
+      } catch (error) {
+        console.error('Failed to load config.json:', error);
+        if (!window.config) window.config = { API_GATEWAY: window.WISP_URL };
+        return window.config;
+      }
+    })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/frontend/main.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/HoujenHuang/TERMINAL@main/frontend/panel.js"></script>
 </body>
 </html>
