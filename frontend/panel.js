@@ -1184,6 +1184,12 @@ function checkBattery() {
    return;
  }
 
+ if (!navigator.getBattery) {
+   load("[ WARN ] Battery API unsupported");
+   batteryDiv.textContent = "N/A";
+   return;
+ }
+
  try {
    navigator.getBattery().then(function(battery) {
      function updateAllStatus() {
@@ -1218,6 +1224,9 @@ function checkBattery() {
      const events = ["levelchange", "chargingchange", "chargingtimechange", "dischargingtimechange"];
      events.forEach(event => battery.addEventListener(event, updateAllStatus));
      load(`[ OK ] Battery fetched: ${Math.round(battery.level * 100)}%`);
+   }).catch(function(e) {
+     load("[ FAIL ] Battery " + e);
+     batteryDiv.textContent = "ERROR";
    });
  } catch (e) {
    load("[ FAIL ] Battery " + e);
@@ -1234,15 +1243,23 @@ function checkConnection() {
    return;
  }
 
-try {
-   if (connection.effectiveType = "slow-2g") {
+ try {
+   if (!connection || !connection.effectiveType) {
+     document.getElementById("status").textContent = navigator.onLine ? "ONLINE" : "OFFLINE";
+     load("[ OK ] Network status checked");
+     return;
+   }
+
+   if (connection.effectiveType === "slow-2g") {
      document.getElementById("status").textContent = "2G ⚠";
-   } else if (connection.effectiveType = "2g") {
+   } else if (connection.effectiveType === "2g") {
      document.getElementById("status").textContent = "2G";
-   } else if (connection.effectiveType = "3g") {
+   } else if (connection.effectiveType === "3g") {
      document.getElementById("status").textContent = "3G";
-   } else if (connection.effectiveType = "4g") {
+   } else if (connection.effectiveType === "4g") {
      document.getElementById("status").textContent = "4G";
+   } else {
+     document.getElementById("status").textContent = String(connection.effectiveType).toUpperCase();
    }
 
    load(`[ OK ] Network fetched: ${connection.effectiveType}`);
@@ -1415,24 +1432,6 @@ const scanline = document.getElementById("scanline");
 
 let isCrtEnabled = true;
 
-function triggerGlitch() {
- if (!isCrtEnabled || !shouldRun()) {
-   filter.setAttribute("scale", 0);
-   return;
- }
-
- noise.setAttribute("seed", Math.random() * 100);
- filter.setAttribute("scale", Math.random() * 4);
-
- const duration = 80;
- setTimeout(() => {
-   filter.setAttribute("scale", 0);
-   if (isCrtEnabled && shouldRun()) {
-     setTimeout(triggerGlitch, Math.random() * 4000 + 2000);
-   }
- }, duration);
-}
-
 let userCrtSetting = getCookie("crtEnabled");
 if (userCrtSetting === null || userCrtSetting === undefined) {
  userCrtSetting = true;
@@ -1471,8 +1470,8 @@ function triggerGlitch() {
    return;
  }
 
- noise.setAttribute("seed", Math.random() * 100);
- filter.setAttribute("scale", Math.random() * 4);
+ if (noise) noise.setAttribute("seed", Math.random() * 100);
+ if (filter) filter.setAttribute("scale", Math.random() * 4);
 
  const duration = 80;
  setTimeout(() => {
