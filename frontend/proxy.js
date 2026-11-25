@@ -1,10 +1,25 @@
 // Proxy
 const WASM_URL = "https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.wasm";
-const WISP_URL = config.API_GATEWAY;
 
-const BASE_HOST = `wss://${WISP_URL}/wisp/`;
 const SEARCH_ENGINE = "https://duckduckgo.com/html/?q=";
 const SPOOFED_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+
+function getWispHost() {
+  const raw = (typeof window !== "undefined" && (window.WISP_URL || window.config?.API_GATEWAY || window.API_GATEWAY)) || "";
+  return String(raw).trim().replace(/^(https?|wss?|wisps?):\/\//i, "").replace(/\/.*$/, "");
+}
+
+function getWispBaseHost() {
+  const host = getWispHost();
+  return host ? `wss://${host}/wisp/` : "";
+}
+
+function getApiGatewayUrl() {
+  const raw = (typeof window !== "undefined" && (window.API_GATEWAY || window.config?.API_GATEWAY)) || "";
+  const trimmed = String(raw).trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
 
 const urlBar = document.getElementById("url-bar");
 const navBar = document.getElementById("nav-bar");
@@ -93,7 +108,7 @@ function syncLayerOptions() {
       } else {
         if (r.value === "vision") r.disabled = (proto !== "vless");
         else if (r.value === "none") r.disabled = (proto === "trojan");
-        else opt.disabled = false;
+        else r.disabled = false;
       }
 
       if (r.disabled) {
@@ -161,7 +176,14 @@ async function applyProfile() {
   if (modal && typeof modal.close === "function" && modal.open) modal.close();
 
   if (statusText) statusText.textContent = `Connecting (${currentProfile})...`;
-  const wispEndpoint = `${BASE_HOST}?profile=${encodeURIComponent(currentProfile)}`;
+  if (window.configReady) await window.configReady;
+
+  const baseHost = getWispBaseHost();
+  if (!baseHost) {
+    if (statusText) statusText.textContent = "Config Unavailable";
+    return;
+  }
+  const wispEndpoint = `${baseHost}?profile=${encodeURIComponent(currentProfile)}`;
 
   try {
     await libcurl.set_websocket(wispEndpoint);
@@ -211,21 +233,29 @@ async function startEngine() {
     }
 
     if (statusText) statusText.textContent = "Loading WASM...";
-    await libcurl.load_wasm(WASM_URL);
+    await Promise.all([
+      libcurl.load_wasm(WASM_URL),
+      window.configReady || Promise.resolve()
+    ]);
+
+    const baseHost = getWispBaseHost();
+    if (!baseHost) {
+      throw new Error("Gateway configuration unavailable.");
+    }
 
     if (statusText) statusText.textContent = `Connecting (${currentProfile})...`;
-    await libcurl.set_websocket(`${BASE_HOST}?profile=${encodeURIComponent(currentProfile)}`);
+    await libcurl.set_websocket(`${baseHost}?profile=${encodeURIComponent(currentProfile)}`);
 
     if (statusText) statusText.textContent = `Ready (${currentProfile})`;
     const proxyServiceStatus = document.getElementById("proxy-service-status");
     if (proxyServiceStatus) proxyServiceStatus.textContent = "Wisp: ONLINE";
     if (goBtn) goBtn.disabled = false;
-    load(`[ OK ] Proxy engine ready: ${currentProfile}`);
+    if (typeof load === "function") load(`[ OK ] Proxy engine ready: ${currentProfile}`);
   } catch (err) {
     if (statusText) statusText.textContent = "Error: " + err.message;
     const proxyServiceStatus = document.getElementById("proxy-service-status");
     if (proxyServiceStatus) proxyServiceStatus.textContent = "Wisp: ERROR";
-    load(`[ FAIL ] Proxy initialization error: ${err.message}`);
+    if (typeof load === "function") load(`[ FAIL ] Proxy initialization error: ${err.message}`);
   }
 }
 
@@ -2542,10 +2572,13 @@ async function detectCloudflareCategory(url, error) {
   return null;
 }
 
-function reportProxyRequest(query) {
+async function reportProxyRequest(query) {
   if (!query) return;
   try {
-    fetch(`${API_GATEWAY}/api/track`, {
+    if (window.configReady) await window.configReady;
+    const gateway = getApiGatewayUrl();
+    if (!gateway) return;
+    fetch(`${gateway}/api/track`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "proxy", query: String(query) }),
@@ -2773,7 +2806,7 @@ window.addEventListener("message", (e) => {
       const proxyTab = tabs.find(t => t.program === "proxy");
       if (proxyTab) {
         proxyTab.title = e.data.title;
-        renderTabs();
+        if (typeof renderTabs === "function") renderTabs();
       }
     }
   }
@@ -2818,10 +2851,12 @@ const DEFAULT_FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 
 function loadBookmarks() {
   try {
-    const fromCookie = getCookie("proxyBookmarks");
-    if (Array.isArray(fromCookie)) {
-      bookmarks = fromCookie;
-      return;
+    if (typeof getCookie === "function") {
+      const fromCookie = getCookie("proxyBookmarks");
+      if (Array.isArray(fromCookie)) {
+        bookmarks = fromCookie;
+        return;
+      }
     }
     const fromStorage = localStorage.getItem("proxyBookmarks");
     if (fromStorage) {
@@ -2834,7 +2869,9 @@ function loadBookmarks() {
 
 function saveBookmarks() {
   try {
-    setCookie("proxyBookmarks", bookmarks, 365);
+    if (typeof setCookie === "function") {
+      setCookie("proxyBookmarks", bookmarks, 365);
+    }
     localStorage.setItem("proxyBookmarks", JSON.stringify(bookmarks));
   } catch (_) {}
 }
