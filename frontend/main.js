@@ -11,7 +11,7 @@ const songData = [
   { filename: "mlechnymi_putyami_v_prekrasnoye_daleko.mp3", title: "NTorchestra - Млечными путями" }
 ];
 
-const audioBaseUrl = "https://raw.githack.com/HoujenHuang/TERMINAL/main/static/";
+const audioBaseUrl = "https://raw.githack.com/HoujenHuang/TERMINAL/main/frontend/static/";
 let radioPlayer = new Audio();
 let searchPlayer = null;
 let currentSongIndex = -1;
@@ -53,11 +53,11 @@ function handleStartupInput(event) {
   document.body.classList.add("flicker");
 
   setInterval(() => {
-    if (shouldRun()) displayTime();
+    if (typeof shouldRun === "function" && shouldRun() && typeof displayTime === "function") displayTime();
   }, 1000);
 
   setInterval(() => {
-    if (shouldRun()) updateTimer();
+    if (typeof shouldRun === "function" && shouldRun() && typeof updateTimer === "function") updateTimer();
   }, 1000);
 
   bootSystem();
@@ -82,7 +82,8 @@ const btnRight = document.getElementById("sideBtnRight");
 function updateProxyConsoleOrientation() {
   const workspace = document.getElementById("proxy-workspace");
   if (!workspace) return;
-  if (isActive) {
+  const sideOpen = typeof isActive !== "undefined" ? isActive : true;
+  if (sideOpen) {
     workspace.classList.remove("layout-horizontal");
     workspace.classList.add("layout-vertical");
   } else {
@@ -96,7 +97,7 @@ function closeSide() {
   sideRight.style.width = "0";
   btnLeft.style.opacity = "1";
   btnRight.style.opacity = "1";
-  isActive = false;
+  if (typeof isActive !== "undefined") isActive = false;
   updateProxyConsoleOrientation();
 }
 
@@ -105,7 +106,7 @@ function openSide() {
   sideRight.style.width = "50%";
   btnLeft.style.opacity = "0";
   btnRight.style.opacity = "0";
-  isActive = true;
+  if (typeof isActive !== "undefined") isActive = true;
   updateProxyConsoleOrientation();
 }
 
@@ -120,31 +121,35 @@ let colorConfig = { theme: "" };
 let isIpCensored = false;
 
 function setCookie(name, value, days = 7) {
-  const d = new Date();
-  d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
-  const expires = `expires=${d.toUTCString()};`;
-  const valStr = encodeURIComponent(JSON.stringify(value));
-  document.cookie = `${name}=${valStr};${expires}path=/;SameSite=Lax`;
+  try {
+    const d = new Date();
+    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = `expires=${d.toUTCString()};`;
+    const valStr = encodeURIComponent(JSON.stringify(value));
+    document.cookie = `${name}=${valStr};${expires}path=/;SameSite=Lax`;
+  } catch (e) {}
 }
 
 function getCookie(name) {
-  const nameEQ = name + "=";
-  const ca = document.cookie.split(';');
-  for (let i = 0; i < ca.length; i++) {
-    let c = ca[i].trim();
-    if (c.indexOf(nameEQ) === 0) {
-      const raw = c.substring(nameEQ.length);
-      try {
-        return JSON.parse(decodeURIComponent(raw));
-      } catch (e) {
+  try {
+    const nameEQ = name + "=";
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+      let c = ca[i].trim();
+      if (c.indexOf(nameEQ) === 0) {
+        const raw = c.substring(nameEQ.length);
         try {
-          return JSON.parse(raw);
-        } catch (_) {
-          return raw;
+          return JSON.parse(decodeURIComponent(raw));
+        } catch (e) {
+          try {
+            return JSON.parse(raw);
+          } catch (_) {
+            return raw;
+          }
         }
       }
     }
-  }
+  } catch (e) {}
   return null;
 }
 
@@ -319,6 +324,7 @@ function toggleAdminGraphMode() {
 
 async function renderAdminDashboard() {
   if (!adminToken || (typeof shouldRun === "function" && !shouldRun())) return;
+  if (window.configReady) await window.configReady;
 
   try {
     const res = await fetch(`${API_GATEWAY}/api/admin/costs?token=${encodeURIComponent(adminToken)}`, {
@@ -408,6 +414,7 @@ function applyAdminLogin(username, token) {
 }
 
 async function login() {
+  if (window.configReady) await window.configReady;
   const emailInput = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
@@ -462,6 +469,7 @@ function checkAndRestoreAdminSession() {
 }
 
 async function checkPublicServicesHealth() {
+  if (window.configReady) await window.configReady;
   try {
     const res = await fetch(`${API_GATEWAY}/api/health`, { signal: AbortSignal.timeout(4000) });
     const data = await res.json();
@@ -862,7 +870,10 @@ function initEditorIfNeeded() {
   setupEditorPanels();
   updateEditorView();
 
-  const savedData = localStorage.getItem("savedCode_" + currentLangValue);
+  let savedData = null;
+  try {
+    savedData = localStorage.getItem("savedCode_" + currentLangValue);
+  } catch (e) {}
   codebox.value = savedData !== null
     ? savedData
     : (currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON);
@@ -877,7 +888,10 @@ document.getElementById("selectLanguage").addEventListener("change", function() 
   setCookie("editorLanguage", currentLangValue, 30);
   updateEditorView();
 
-  const savedContent = localStorage.getItem("savedCode_" + currentLangValue);
+  let savedContent = null;
+  try {
+    savedContent = localStorage.getItem("savedCode_" + currentLangValue);
+  } catch (e) {}
   const nextCode = savedContent !== null
     ? savedContent
     : (currentLangValue === "language-html" ? DEFAULT_HTML : DEFAULT_PYTHON);
@@ -890,7 +904,9 @@ document.getElementById("selectLanguage").addEventListener("change", function() 
   requestAnimationFrame(() => refreshEditorMetrics());
 });
 
-window.onload = function() { localStorage.clear(); };
+window.addEventListener("load", function() {
+  try { localStorage.clear(); } catch (e) {}
+});
 
 function runEditor() {
   initEditorIfNeeded();
@@ -1068,8 +1084,10 @@ function switchTab(id) {
   activeTabId = id;
   renderTabs();
 
-  if (targetTab.program === "proxy" || targetTab.program === "editor") applyCrt(false);
-  else applyCrt(userCrtSetting);
+  if (typeof applyCrt === "function") {
+    if (targetTab.program === "proxy" || targetTab.program === "editor") applyCrt(false);
+    else if (typeof userCrtSetting !== "undefined") applyCrt(userCrtSetting);
+  }
 
   const outputEl = document.getElementById("stdout");
   if (outputEl) outputEl.innerHTML = targetTab.stdout || "";
@@ -1355,6 +1373,7 @@ async function probeChainFromClient(httpStatus, serverHeader, bodyText, elapsedM
 }
 
 async function fetchServerInfo() {
+  if (window.configReady) await window.configReady;
   const esc = (v) => String(v ?? "N/A").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   appendOutput("Fetching server health telemetry...<br>");
   const startMs = performance.now();
@@ -1705,7 +1724,7 @@ const sizeObserver = new IntersectionObserver((entries) => {
       fetch(url, { method: 'HEAD' })
         .then(res => {
           const size = res.headers.get("content-length");
-          sizeInfo.textContent = formatBytes(size);
+          sizeInfo.textContent = (!size || isNaN(Number(size))) ? "ERROR" : formatBytes(Number(size));
         })
         .catch(() => { sizeInfo.textContent = " ERROR"; });
     }
@@ -1716,6 +1735,12 @@ function generateAllSections(filter = "") {
   const container = document.getElementById("sections-container");
   const fileCount = document.getElementById("fileCount");
   container.textContent = "";
+
+  if (typeof files === "undefined" || !Array.isArray(files)) {
+    if (fileCount) fileCount.textContent = "0 items";
+    load("[ FAIL ] Games list unavailable");
+    return;
+  }
 
   const allChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const filesByChar = {};
@@ -1990,6 +2015,7 @@ function edictOfObliteration(uiItems) {
 }
 
 async function purgeHeresy(videos, query, canBisect = true) {
+  if (window.configReady) await window.configReady;
   const expectedIds = videos.map(v => (v.id.videoId || v.id));
   const queryKey = String(query || "").trim().toLowerCase();
   let totalInputTokens = 0;
@@ -2267,6 +2293,7 @@ queryInput.addEventListener("keydown", (e) => {
 });
 
 async function searchVideos() {
+  if (window.configReady) await window.configReady;
   const query = document.getElementById('query').value.trim();
   const sText = document.getElementById('youtubeStatus');
   const metricsDiv = document.getElementById('youtubeMetrics');
@@ -2465,6 +2492,8 @@ async function initPhosphorOS() {
     return;
   }
   phosphorBooting = true;
+
+  if (window.configReady) await window.configReady;
 
   const termContainer = document.getElementById("phosphorTerminal");
   const screenContainer = document.getElementById("phosphorScreen");
@@ -2720,7 +2749,7 @@ function reconnectPhosphorSudo() {
   initPhosphorSudo();
 }
 
-function initPhosphorSudo() {
+async function initPhosphorSudo() {
   syncPhosphorSudoPrompt();
   if (phosphorSudoWs && (phosphorSudoWs.readyState === WebSocket.OPEN || phosphorSudoWs.readyState === WebSocket.CONNECTING)) {
     focusPhosphorSudo();
@@ -2740,6 +2769,8 @@ function initPhosphorSudo() {
     termContainer.textContent = "ERROR: Failed to load xterm.js from CDN.";
     return;
   }
+
+  if (window.configReady) await window.configReady;
 
   termContainer.innerHTML = "";
 
@@ -2908,22 +2939,35 @@ const splashes = [
 async function bootSystem() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  if (window.configReady) {
+    await Promise.race([window.configReady, sleep(4000)]);
+  }
+
   const startupTasks = [
-    displayTime,
-    displayDate,
-    updateTimer,
-    checkBrowser,
-    checkMemory,
-    checkBattery,
-    checkConnection,
-    generateAllSections,
-    startEngine,
-    checkAndRestoreAdminSession
+    () => typeof displayTime === "function" && displayTime(),
+    () => typeof displayDate === "function" && displayDate(),
+    () => typeof updateTimer === "function" && updateTimer(),
+    () => typeof checkBrowser === "function" && checkBrowser(),
+    () => typeof checkMemory === "function" && checkMemory(),
+    () => typeof checkBattery === "function" && checkBattery(),
+    () => typeof checkConnection === "function" && checkConnection(),
+    () => typeof generateAllSections === "function" && generateAllSections(),
+    () => {
+      if (typeof startEngine === "function") {
+        return startEngine();
+      }
+      load("[ WARN ] Proxy module not loaded");
+      const proxyStatus = document.getElementById("proxy-status");
+      if (proxyStatus) proxyStatus.textContent = "Proxy script missing";
+    },
+    () => typeof checkAndRestoreAdminSession === "function" && checkAndRestoreAdminSession()
   ];
 
   async function runStartupSequence(delayMs = 200) {
     for (const task of startupTasks) {
-      await task();
+      try {
+        await task();
+      } catch (e) {}
       await sleep(delayMs);
     }
   }
@@ -2936,9 +2980,10 @@ async function bootSystem() {
 
   const ipPromise = (async () => {
     try {
+      if (typeof fetchIPData !== "function") return;
       await fetchIPData();
       updateIpDisplays();
-      if (typeof am5 !== "undefined") {
+      if (typeof am5 !== "undefined" && typeof initMap === "function") {
         await new Promise(resolve => {
           am5.ready(async () => {
             try { await initMap(); } catch (e) {}
@@ -2949,18 +2994,16 @@ async function bootSystem() {
     } catch (e) {}
   })();
 
-  const weatherPromise = (async () => {
-    try { await updateMarsWeatherTable(); } catch (e) {}
-  })();
-
   const speedPromise = (async () => {
-    try { await checkSpeed(); } catch (e) {}
+    try {
+      if (typeof checkSpeed === "function") await checkSpeed();
+    } catch (e) {}
   })();
 
   const serviceHealthPromise = checkPublicServicesHealth();
 
   await Promise.race([
-    Promise.allSettled([ipPromise, weatherPromise, speedPromise, serviceHealthPromise]),
+    Promise.allSettled([ipPromise, speedPromise, serviceHealthPromise]),
     new Promise(resolve => setTimeout(resolve, 5000))
   ]);
 
@@ -2993,6 +3036,6 @@ function showTerminal() {
       tContent.style.opacity = "1";
       tContent.classList.remove("fade-in");
     }
-    resumeFPS();
+    if (typeof resumeFPS === "function") resumeFPS();
   }, 1200);
 }
