@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+ <meta charset="UTF-8">
+ <style>
+   body {
+     background-color: black;
+     color: lime;
+     font-family: monospace;
+     white-space: pre;
+   }
+ </style>
+</head>
+<body>
+ <div>
+The
+████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗
+╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║
+   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║
+   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║
+   ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║███████╗
+   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝
+Bootstrap CDN                                          v1.2611.24
+ </div><br>
+ <div id="status">Initializing...</div>
+
+<script>
+ (async function loadScript() {
+   const statusEl = document.getElementById("status");
+
+   function updateStatus(message) {
+     if (!statusEl) return;
+     statusEl.innerHTML += "<br>" + message;
+   }
+
+   const owner = "HoujenHuang";
+   const repo = "TERMINAL";
+   const branch = "main";
+   const filePath = "frontend/index.html";
+
+   let versionRef = branch;
+   let isSha = false;
+
+   const commitCache = new Map();
+   async function fetchFileLatestCommit(path) {
+     if (commitCache.has(path)) return commitCache.get(path);
+     const promise = (async () => {
+       try {
+         const query = new URLSearchParams({
+           sha: versionRef,
+           path,
+           per_page: "1",
+           _: String(Date.now())
+         });
+         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits?${query.toString()}`, {
+           headers: {
+             "Accept": "application/vnd.github.v3+json"
+           },
+           cache: "no-store"
+         });
+         if (!res.ok) return null;
+         const data = await res.json();
+         if (Array.isArray(data) && data.length > 0 && data[0].sha) {
+           return data[0].sha;
+         }
+       } catch (_) {}
+       return null;
+     })();
+     commitCache.set(path, promise);
+     return promise;
+   }
+
+   try {
+     updateStatus("Fetching latest commit...");
+     const ghRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(branch)}?_=${Date.now()}`, {
+         headers: {
+           "Accept": "application/vnd.github.v3+json"
+         },
+         cache: "no-store"
+       }
+     );
+
+     if (ghRes.ok) {
+       const ghData = await ghRes.json();
+       if (ghData && ghData.sha) {
+         versionRef = ghData.sha;
+         isSha = true;
+         updateStatus(`[  OK  ] Successfully fetched latest commit: ${versionRef.slice(0, 7)}`);
+       }
+     } else {
+       updateStatus(`[ FAIL ] GitHub API returned an error: ${ghRes.status}. Falling back to @${branch}...`);
+     }
+   } catch (ghErr) {
+     updateStatus(`[ FAIL ] Could not query GitHub API: ${ghErr}. Falling back to branch name...`);
+   }
+
+   const baseUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${versionRef}/`;
+   const rawBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${versionRef}/`;
+   const targetUrl = isSha ? `${baseUrl}${filePath}` : `${rawBaseUrl}${filePath}?_=${Date.now()}`;
+   let usedRawFallback = !isSha;
+
+   try {
+     updateStatus(`Fetching The TERMINAL...`);
+     let response = null;
+
+     if (isSha) {
+       try {
+         response = await fetch(targetUrl, {
+           cache: "default"
+         });
+       } catch (_) {
+         response = null;
+       }
+
+       if (!response || !response.ok) {
+         updateStatus(`[ FAIL ] jsDelivr returned an error${response ? `: ${response.status}` : ""}. Falling back to GitHub Raw...`);
+         usedRawFallback = true;
+         response = await fetch(`${rawBaseUrl}${filePath}?_=${Date.now()}`, {
+           cache: "no-store"
+         });
+       }
+     } else {
+       try {
+         response = await fetch(targetUrl, {
+           cache: "no-store"
+         });
+       } catch (_) {
+         response = null;
+       }
+
+       if (!response || !response.ok) {
+         updateStatus(`[ FAIL ] GitHub Raw unavailable${response ? `: ${response.status}` : ""}. Falling back to jsDelivr @${branch}...`);
+         usedRawFallback = false;
+         response = await fetch(`${baseUrl}${filePath}?_=${Date.now()}`, {
+           cache: "no-store"
+         });
+       }
+     }
+
+     if (!response.ok) {
+       const errorBody = await response.text().catch(() => "");
+       updateStatus(`[ FAIL ] Could not query CDN.<br>  HTTP ${response.status} (${response.statusText || "No status text received"})` + `<br>  Target URL: ${response.url || targetUrl}` + `<br>  Server message: ${errorBody.trim() || "No server message received"}`);
+       return;
+     }
+
+     let html = await response.text();
+
+     html = html.split(`/${repo}@${branch}/`).join(`/${repo}@${versionRef}/`);
+
+     const repoAssetPrefix = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${versionRef}/`;
+     const linkRe = /<link\b([^>]*)>/gi;
+     const scriptRe = /<script\b([^>]*?)\bsrc=(["'])([^"']+)\2([^>]*)>([\s\S]*?)<\/script>/gi;
+     const escapedPrefix = repoAssetPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+     const inlineAssetRe = new RegExp(`${escapedPrefix}[^\\s"'` + "`" + `<>()\\\\]+`, "g");
+     const assetJobs = new Map();
+
+     for (const match of html.matchAll(linkRe)) {
+       const attrs = match[1];
+       const hrefMatch = attrs.match(/\bhref=(["'])([^"']+)\1/i);
+       if (!hrefMatch) continue;
+       const url = hrefMatch[2];
+       const isStylesheet = /\brel=["'][^"']*stylesheet[^"']*["']/i.test(attrs) || /\.css(?:[?#]|$)/i.test(url);
+       if (isStylesheet && url.startsWith(repoAssetPrefix) && !assetJobs.has(url)) {
+         assetJobs.set(url, {
+           url,
+           type: "css"
+         });
+       }
+     }
+
+     for (const match of html.matchAll(scriptRe)) {
+       const url = match[3];
+       if (url.startsWith(repoAssetPrefix) && !assetJobs.has(url)) {
+         assetJobs.set(url, {
+           url,
+           type: "js"
+         });
+       }
+     }
+
+     for (const match of html.matchAll(inlineAssetRe)) {
+       const url = match[0];
+       if (!assetJobs.has(url)) {
+         assetJobs.set(url, {
+           url,
+           type: "raw"
+         });
+       }
+     }
+
+     const fileCommitPromise = fetchFileLatestCommit(filePath).then((sha) => {
+       if (sha) {
+         updateStatus(`[  OK  ] Successfully fetched ${filePath} (commit: ${sha.slice(0, 7)})`);
+       } else {
+         updateStatus(`[ FAIL ] Unable to fetch commit for ${filePath}`);
+       }
+     });
+
+     const resolvedAssets = new Map();
+     await Promise.all([
+       fileCommitPromise,
+       ...Array.from(assetJobs.values()).map(async ({url, type}) => {
+         const cleanUrl = url.split(/[?#]/)[0];
+         const assetPath = decodeURIComponent(cleanUrl.slice(repoAssetPrefix.length));
+         const cacheBust = Date.now();
+
+         const commitPromise = fetchFileLatestCommit(assetPath).then((sha) => {
+           if (sha) {
+             updateStatus(`[  OK  ] ${assetPath} -> ${sha.slice(0, 7)}`);
+           } else {
+             updateStatus(`[ FAIL ] ${assetPath} -> commit unavailable`);
+           }
+         });
+
+         const resolvePromise = (async () => {
+           if (isSha && !usedRawFallback) {
+             try {
+               const cdnRes = await fetch(cleanUrl, {
+                 cache: "default"
+               });
+               if (cdnRes.ok) {
+                 resolvedAssets.set(url, {
+                   mode: "keep"
+                 });
+                 return;
+               }
+             } catch (_) {}
+           }
+
+           try {
+             const rawUrl = `${rawBaseUrl}${assetPath}?_=${cacheBust}`;
+             const rawRes = await fetch(rawUrl, {
+               cache: "no-store"
+             });
+             if (rawRes.ok) {
+               if (type === "raw") {
+                 resolvedAssets.set(url, {
+                   mode: "rawUrl",
+                   rawUrl
+                 });
+                 return;
+               }
+               const text = await rawRes.text();
+               if (type === "css") {
+                 resolvedAssets.set(url, {
+                   mode: "inlineCss",
+                   text
+                 });
+               } else {
+                 const blobUrl = URL.createObjectURL(new Blob([text], {
+                   type: "application/javascript"
+                 }));
+                 resolvedAssets.set(url, {
+                   mode: "blob",
+                   blobUrl
+                 });
+               }
+               return;
+             }
+           } catch (_) {}
+
+           resolvedAssets.set(url, {
+             mode: "bust",
+             bustedUrl: `${cleanUrl}?_=${cacheBust}`
+           });
+         })();
+
+         await Promise.all([commitPromise, resolvePromise]);
+       })
+     ]);
+
+     html = html.replace(linkRe, (fullMatch, attrs) => {
+       const hrefMatch = attrs.match(/\bhref=(["'])([^"']+)\1/i);
+       if (!hrefMatch) return fullMatch;
+       const entry = resolvedAssets.get(hrefMatch[2]);
+       if (!entry || entry.mode === "keep") return fullMatch;
+       if (entry.mode === "inlineCss") {
+         return `<style>\n${entry.text.replace(/<\/style/gi, "\\3c /style")}\n</style>`;
+       }
+       if (entry.mode === "bust") {
+         return fullMatch.replace(hrefMatch[0], `href="${entry.bustedUrl}"`);
+       }
+       return fullMatch;
+     });
+
+     html = html.replace(scriptRe, (fullMatch, before, quote, url, after, inner) => {
+       const entry = resolvedAssets.get(url);
+       if (!entry || entry.mode === "keep") return fullMatch;
+       if (entry.mode === "blob") {
+         return `<script${before}src="${entry.blobUrl}"${after}>${inner}<\/script>`;
+       }
+       if (entry.mode === "bust") {
+         return `<script${before}src="${entry.bustedUrl}"${after}>${inner}<\/script>`;
+       }
+       return fullMatch;
+     });
+
+     html = html.replace(inlineAssetRe, (url) => {
+       const entry = resolvedAssets.get(url);
+       const job = assetJobs.get(url);
+       if (!entry || !job || job.type !== "raw" || entry.mode === "keep") return url;
+       if (entry.mode === "rawUrl") return entry.rawUrl;
+       if (entry.mode === "bust") return entry.bustedUrl;
+       return url;
+     });
+
+     const fileDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/") + 1) : "";
+     const activeBaseUrl = (usedRawFallback ? rawBaseUrl : baseUrl) + fileDir;
+     const baseTag = `<base href="${activeBaseUrl}">`;
+     if (/<base\b[^>]*>/i.test(html)) {
+       html = html.replace(/<base\b[^>]*>/i, baseTag);
+     } else if (/<head\b[^>]*>/i.test(html)) {
+       html = html.replace(/<head\b[^>]*>/i, `$&${baseTag}`);
+     } else {
+       html = baseTag + html;
+     }
+
+     updateStatus("[  OK  ] Successfully fetched The TERMINAL");
+     updateStatus("Injecting HTML...");
+
+     setTimeout(() => {
+       document.open();
+       document.write(html);
+       document.close();
+     }, 500);
+   } catch (error) {
+     let diagnosticDetails = `[ FAIL ] ${error.name}: ${error.message}.`;
+     if (!navigator.online) {
+       diagnosticDetails += ` Reason: No internet connection`;
+     }
+
+     if (error instanceof TypeError && error.message.includes("fetch")) {
+       diagnosticDetails += ` Reason: Network or CORS error`;
+     }
+
+     updateStatus(diagnosticDetails);
+   }
+ })();
+</script>
+</body>
+</html>
