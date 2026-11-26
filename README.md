@@ -354,4 +354,19 @@ Under **Default cache behavior**:
 }
 ```
 
-That's all! To read requests going to your server, run `cat requests.jsonl`.
+Ensure that your distribution of `bootstrap.html` has your repository linked to it (between lines 36-37).
+
+```javascript
+const owner = "HoujenHuang"; // Replace with your username
+const repo = "TERMINAL"; // Replace with your repository name
+const branch = "main";
+const filePath = "frontend/index.html";
+```
+
+Congratulations, you have sucessfully set up The TERMINAL! Make sure to check over this repository often, since I update the frontend basically every day and the backend every sometimes.
+
+### Maintain Server Health
+
+Of course, since you are running The TERMINAL's backend, you will need to ensure that it works normally. Run `info` in The TERMINAL's frontend after signing in via `admin` (it will give you all the information you need) and use `sudo phosphor` to remotely edit your home machine (NOTE: depending on the problem, PhosphorOS may not work, especially if it is a network or fatal error).
+
+Run `cat ~/TERMINAL/backend/requests.jsonl` to read request logs from users to your server. It resets every month to prevent it from taking up too much storage.
