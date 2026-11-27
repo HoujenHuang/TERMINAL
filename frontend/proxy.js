@@ -1,3 +1,4 @@
+  <script>
 // Proxy
 const WASM_URL = "https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.wasm";
 
@@ -45,7 +46,10 @@ const applyModalBtn = document.getElementById("apply-modal-btn");
 const profileDisplay = document.getElementById("profile-display");
 
 const assetCache = new Map();
+const assetStatusCache = new Map();
+const proxySources = new Map();
 
+let activeProxyConsoleTab = "console";
 let currentUrl = "";
 let currentTitle = "";
 let currentFavicon = "";
@@ -188,7 +192,10 @@ async function applyProfile() {
   try {
     await libcurl.set_websocket(wispEndpoint);
     if (statusText) statusText.textContent = `Ready (${currentProfile})`;
-    if (currentUrl) navigateTo(currentUrl, false);
+    if (currentUrl) {
+      clearProxySources();
+      navigateTo(currentUrl, false);
+    }
   } catch (e) {
     if (statusText) statusText.textContent = "Switch Failed";
   }
@@ -225,6 +232,26 @@ if (closeModalBtn && modal) closeModalBtn.onclick = () => modal.close();
 if (applyModalBtn) applyModalBtn.onclick = applyProfile;
 
 // WASM engine initialization
+function hookLibcurlFetch() {
+  if (typeof libcurl === "undefined" || typeof libcurl.fetch !== "function" || libcurl.__proxySourceHooked) return;
+  const origFetch = libcurl.fetch.bind(libcurl);
+  libcurl.fetch = async function(url, options) {
+    try {
+      const res = await origFetch(url, options);
+      if (typeof recordProxySource === "function") {
+        recordProxySource(url, res && typeof res.status === "number" ? res.status : "ERR");
+      }
+      return res;
+    } catch (err) {
+      if (typeof recordProxySource === "function") {
+        recordProxySource(url, "ERR");
+      }
+      throw err;
+    }
+  };
+  libcurl.__proxySourceHooked = true;
+}
+
 async function startEngine() {
   try {
     syncLayerOptions();
@@ -237,6 +264,8 @@ async function startEngine() {
       libcurl.load_wasm(WASM_URL),
       window.configReady || Promise.resolve()
     ]);
+
+    hookLibcurlFetch();
 
     const baseHost = getWispBaseHost();
     if (!baseHost) {
@@ -773,7 +802,213 @@ function toggleProxyConsole() {
   if (typeof updateProxyConsoleOrientation === "function") updateProxyConsoleOrientation();
 }
 
+// Subresource inlining
+function switchProxyConsoleTab(tab) {
+  activeProxyConsoleTab = tab === "sources" ? "sources" : "console";
+  const consoleEl = document.getElementById("proxy-console");
+  const sourcesEl = document.getElementById("proxy-sources");
+  const consoleTab = document.getElementById("proxy-tab-console");
+  const sourcesTab = document.getElementById("proxy-tab-sources");
+
+  if (consoleEl) consoleEl.style.display = activeProxyConsoleTab === "console" ? "" : "none";
+  if (sourcesEl) {
+    sourcesEl.classList.toggle("invisible", activeProxyConsoleTab !== "sources");
+    sourcesEl.style.display = activeProxyConsoleTab === "sources" ? "block" : "none";
+  }
+  if (consoleTab) consoleTab.classList.toggle("active", activeProxyConsoleTab === "console");
+  if (sourcesTab) sourcesTab.classList.toggle("active", activeProxyConsoleTab === "sources");
+}
+
+function clearProxySources() {
+  proxySources.clear();
+  const sourcesEl = document.getElementById("proxy-sources");
+  if (sourcesEl) sourcesEl.innerHTML = "";
+}
+
+function recordProxySource(url, status) {
+  const urlStr = typeof url === "string" ? url : (url && url.url ? url.url : String(url || ""));
+  if (!urlStr || urlStr.startsWith("data:") || /^blob:[^/]+\/\/[^/]+\/[0-9a-f-]{36}$/i.test(urlStr)) return;
+
+  const statusTextVal = status === undefined || status === null || status === "" ? "ERR" : String(status);
+  const sourcesEl = document.getElementById("proxy-sources");
+  const existing = proxySources.get(urlStr);
+
+  if (existing) {
+    existing.status = statusTextVal;
+    if (existing.statusEl) existing.statusEl.textContent = statusTextVal;
+    return;
+  }
+
+  const entry = { status: statusTextVal, statusEl: null };
+  proxySources.set(urlStr, entry);
+
+  if (sourcesEl) {
+    const row = document.createElement("div");
+    row.className = "proxy-source-item";
+
+    const statusSpan = document.createElement("span");
+    statusSpan.className = "proxy-source-status";
+    statusSpan.textContent = statusTextVal;
+
+    const urlSpan = document.createElement("span");
+    urlSpan.className = "proxy-source-url";
+    urlSpan.textContent = urlStr;
+    urlSpan.title = urlStr;
+
+    row.appendChild(statusSpan);
+    row.appendChild(urlSpan);
+    sourcesEl.appendChild(row);
+    entry.statusEl = statusSpan;
+  }
+}
+
+function attachIframeSourceTracking() {
+  if (!viewport) return;
+  let win = null;
+  let doc = null;
+  try {
+    win = viewport.contentWindow;
+    doc = viewport.contentDocument || (win ? win.document : null);
+  } catch (_) {
+    return;
+  }
+  if (!win || !doc) return;
+
+  const perfStatusMap = new Map();
+  try {
+    if (win.performance && typeof win.performance.getEntriesByType === "function") {
+      const entries = win.performance.getEntriesByType("resource");
+      for (const entry of entries) {
+        if (!entry || !entry.name) continue;
+        perfStatusMap.set(entry.name, entry.responseStatus || 0);
+        if (entry.responseStatus > 0) {
+          recordProxySource(entry.name, entry.responseStatus);
+        }
+      }
+    }
+  } catch (_) {}
+
+  const normalizeResourceUrl = (rawAttr, resolved) => {
+    if (!rawAttr || rawAttr.startsWith("data:") || rawAttr.startsWith("blob:")) return "";
+    if (resolved && !resolved.startsWith("data:") && !resolved.startsWith("blob:")) return resolved;
+    return currentUrl ? resolveRelative(rawAttr, currentUrl) : (resolved || rawAttr);
+  };
+
+  try {
+    const resourceEls = doc.querySelectorAll("img[src], script[src], link[href], video[src], audio[src], source[src]");
+    for (const el of resourceEls) {
+      const tag = el.tagName.toUpperCase();
+      const rawAttr = tag === "LINK" ? el.getAttribute("href") : el.getAttribute("src");
+      const rawResolved = el.currentSrc || el.src || el.href || rawAttr;
+      const resUrl = normalizeResourceUrl(rawAttr, rawResolved);
+      if (!resUrl) continue;
+      const perfStatus = perfStatusMap.get(rawResolved) || perfStatusMap.get(resUrl) || 0;
+      if (tag === "IMG") {
+        if (el.complete) {
+          if (el.naturalWidth === 0) {
+            recordProxySource(resUrl, perfStatus > 0 ? perfStatus : "ERR");
+          } else {
+            recordProxySource(resUrl, perfStatus > 0 ? perfStatus : 200);
+          }
+        }
+      } else if (perfStatus > 0) {
+        recordProxySource(resUrl, perfStatus);
+      }
+    }
+  } catch (_) {}
+
+  if (!doc.__proxySourceTracked) {
+    doc.__proxySourceTracked = true;
+    const getPerfStatus = (targetUrl) => {
+      try {
+        const matches = win.performance?.getEntriesByName?.(targetUrl, "resource");
+        const last = matches && matches.length ? matches[matches.length - 1] : null;
+        return last && last.responseStatus > 0 ? last.responseStatus : 0;
+      } catch (_) {
+        return 0;
+      }
+    };
+    const onResourceEvent = (isError) => (ev) => {
+      const t = ev.target;
+      if (!t || !t.tagName) return;
+      const tag = t.tagName.toUpperCase();
+      if (!["IMG", "SCRIPT", "LINK", "VIDEO", "AUDIO", "SOURCE", "IFRAME"].includes(tag)) return;
+      const rawAttr = tag === "LINK" ? t.getAttribute("href") : t.getAttribute("src");
+      const rawResolved = t.currentSrc || t.src || t.href || rawAttr;
+      const resUrl = normalizeResourceUrl(rawAttr, rawResolved);
+      if (!resUrl) return;
+      const perfStatus = getPerfStatus(rawResolved) || getPerfStatus(resUrl);
+      if (isError) {
+        recordProxySource(resUrl, perfStatus > 0 ? perfStatus : "ERR");
+      } else {
+        recordProxySource(resUrl, perfStatus > 0 ? perfStatus : 200);
+      }
+    };
+    doc.addEventListener("load", onResourceEvent(false), true);
+    doc.addEventListener("error", onResourceEvent(true), true);
+  }
+
+  if (!win.__proxyPerfObserved && typeof win.PerformanceObserver === "function") {
+    try {
+      win.__proxyPerfObserved = true;
+      const obs = new win.PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry && entry.name && entry.responseStatus > 0) {
+            recordProxySource(entry.name, entry.responseStatus);
+          }
+        }
+      });
+      obs.observe({ type: "resource", buffered: true });
+    } catch (_) {}
+  }
+}
+
+function initProxySourcesTracking() {
+  if (navBar) {
+    navBar.addEventListener("submit", clearProxySources);
+  }
+  if (reloadBtn) {
+    reloadBtn.addEventListener("click", () => {
+      if (currentUrl) clearProxySources();
+    });
+  }
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      if (historyIdx > 0) clearProxySources();
+    });
+  }
+  if (fwdBtn) {
+    fwdBtn.addEventListener("click", () => {
+      if (historyIdx < historyStack.length - 1) clearProxySources();
+    });
+  }
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "PROXY_NAV" && e.data.url) {
+      clearProxySources();
+    }
+  });
+  if (viewport) {
+    viewport.addEventListener("load", attachIframeSourceTracking);
+    const srcObserver = new MutationObserver(() => {
+      waitForIframeDocument(viewport, viewport.dataset?.blobUrl || "").then(() => {
+        attachIframeSourceTracking();
+      });
+    });
+    srcObserver.observe(viewport, { attributes: true, attributeFilter: ["src"] });
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initProxySourcesTracking);
+} else {
+  initProxySourcesTracking();
+}
+
 function clearProxyConsole() {
+  if (activeProxyConsoleTab === "sources") {
+    clearProxySources();
+    return;
+  }
   const c = document.getElementById("proxy-console");
   if (c) c.value = "";
 }
@@ -795,7 +1030,10 @@ function updateRemainingDisplay(count) {
 
 async function fetchAssetTunnel(url, asBinary = false) {
   const cacheKey = `${url}::${asBinary ? "bin" : "txt"}`;
-  if (assetCache.has(cacheKey)) return assetCache.get(cacheKey);
+  if (assetCache.has(cacheKey)) {
+    recordProxySource(url, assetStatusCache.get(cacheKey) ?? 200);
+    return assetCache.get(cacheKey);
+  }
 
   try {
     window.__proxyCookies = window.__proxyCookies || new Map();
@@ -825,6 +1063,9 @@ async function fetchAssetTunnel(url, asBinary = false) {
     }
 
     const res = await libcurl.fetch(url, { headers });
+    if (res && typeof res.status === "number") {
+      assetStatusCache.set(cacheKey, res.status);
+    }
 
     const rawSetCookie = res.headers.get("set-cookie");
     if (rawSetCookie && host) {
@@ -962,8 +1203,9 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
 
   const linkTags = inlineCssEnabled ? [...doc.querySelectorAll('link[rel~="stylesheet" i]')] : [];
   const preInlinedStyles = inlineCssEnabled ? [...doc.querySelectorAll('style[data-proxy-style-id]')] : [];
-  const imgTags = [...doc.querySelectorAll("img[src]")].slice(0, 60);
-  const totalElements = linkTags.length + preInlinedStyles.length + imgTags.length;
+  const imgTags = [...doc.querySelectorAll("img[src]")];
+  const styledEls = inlineCssEnabled ? [...doc.querySelectorAll("[style]")].filter(el => /url\(/i.test(el.getAttribute("style") || "")) : [];
+  const totalElements = linkTags.length + preInlinedStyles.length + imgTags.length + styledEls.length;
   let remaining = totalElements;
 
   updateRemainingDisplay(remaining);
@@ -1030,29 +1272,60 @@ async function inlineSubresourcesSequentially(doc, baseUrl, iframeTarget) {
     reportProgress();
   }
 
-  for (const img of imgTags) {
-    const src = img.getAttribute("src");
-    if (!src || src.startsWith("data:")) {
-      reportProgress();
-      continue;
-    }
-    const absUrl = resolveRelative(src, baseUrl);
-    const dataUri = await fetchAssetTunnel(absUrl, true);
-    if (dataUri) {
-      img.setAttribute("src", dataUri);
-      img.removeAttribute("srcset");
-      try {
-        const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
-        if (liveDoc) {
-          const liveImg = liveDoc.querySelector(`img[src="${CSS.escape(src)}"]`);
-          if (liveImg) {
-            liveImg.setAttribute("src", dataUri);
-            liveImg.removeAttribute("srcset");
+  let imgIdx = 0;
+  const IMG_CONCURRENCY = 6;
+  async function imgWorker() {
+    while (imgIdx < imgTags.length) {
+      const img = imgTags[imgIdx++];
+      const src = img.getAttribute("src");
+      if (!src || src.startsWith("data:") || src.startsWith("blob:")) {
+        reportProgress();
+        continue;
+      }
+      const absUrl = resolveRelative(src, baseUrl);
+      const dataUri = await fetchAssetTunnel(absUrl, true);
+      if (dataUri) {
+        img.setAttribute("src", dataUri);
+        img.removeAttribute("srcset");
+        try {
+          const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
+          if (liveDoc) {
+            const liveImg = liveDoc.querySelector(`img[src="${CSS.escape(src)}"], img[data-proxied-src="${CSS.escape(absUrl)}"]`);
+            if (liveImg) {
+              liveImg.setAttribute("src", dataUri);
+              liveImg.removeAttribute("srcset");
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
+      reportProgress();
     }
-    reportProgress();
+  }
+  if (imgTags.length > 0) {
+    await Promise.all(Array.from({ length: Math.min(IMG_CONCURRENCY, imgTags.length) }, imgWorker));
+  }
+
+  let styleIdx = 0;
+  async function styleAttrWorker() {
+    while (styleIdx < styledEls.length) {
+      const el = styledEls[styleIdx++];
+      const rawStyle = el.getAttribute("style") || "";
+      const inlinedStyle = await inlineCssUrls(rawStyle, baseUrl);
+      if (inlinedStyle && inlinedStyle !== rawStyle) {
+        el.setAttribute("style", inlinedStyle);
+        try {
+          const liveDoc = await waitForIframeDocument(iframeTarget, expectedBlobUrl);
+          if (liveDoc) {
+            const liveEl = liveDoc.querySelector(`[style="${CSS.escape(rawStyle)}"]`);
+            if (liveEl) liveEl.setAttribute("style", inlinedStyle);
+          }
+        } catch (_) {}
+      }
+      reportProgress();
+    }
+  }
+  if (styledEls.length > 0) {
+    await Promise.all(Array.from({ length: Math.min(IMG_CONCURRENCY, styledEls.length) }, styleAttrWorker));
   }
 
   updateRemainingDisplay(0);
@@ -1063,7 +1336,8 @@ function buildClientShim(targetUrl) {
     (function() {
       const TARGET_URL = ${JSON.stringify(targetUrl)};
       const SPOOFED_UA = ${JSON.stringify(SPOOFED_UA)};
-      const parsedTarget = new URL(TARGET_URL);
+      let parsedTarget = new URL(TARGET_URL);
+      let currentTargetUrl = TARGET_URL;
 
       try {
         window.RTCPeerConnection = undefined;
@@ -1081,6 +1355,55 @@ function buildClientShim(targetUrl) {
         if (navigator.serviceWorker) {
           navigator.serviceWorker.register = () => Promise.reject(new Error("ServiceWorker disabled in proxy"));
         }
+      } catch (e) {}
+
+      try {
+        const memCaches = new Map();
+        const makeCache = () => {
+          const store = new Map();
+          return {
+            match: async (req) => {
+              const k = typeof req === 'string' ? resolveTarget(req) : (req && req.url ? resolveTarget(req.url) : String(req));
+              const hit = store.get(k);
+              return hit ? hit.clone() : undefined;
+            },
+            put: async (req, res) => {
+              const k = typeof req === 'string' ? resolveTarget(req) : (req && req.url ? resolveTarget(req.url) : String(req));
+              if (res && typeof res.clone === 'function') store.set(k, res.clone());
+            },
+            add: async (req) => {
+              const r = await window.fetch(req);
+              const k = typeof req === 'string' ? resolveTarget(req) : (req && req.url ? resolveTarget(req.url) : String(req));
+              store.set(k, r.clone());
+            },
+            addAll: async (reqs) => {
+              const c = makeCache();
+              return Promise.all(Array.from(reqs || []).map(r => c.add(r)));
+            },
+            delete: async (req) => {
+              const k = typeof req === 'string' ? resolveTarget(req) : (req && req.url ? resolveTarget(req.url) : String(req));
+              return store.delete(k);
+            },
+            keys: async () => Array.from(store.keys())
+          };
+        };
+        const cacheStorageShim = {
+          open: async (name) => {
+            if (!memCaches.has(name)) memCaches.set(name, makeCache());
+            return memCaches.get(name);
+          },
+          match: async (req) => {
+            for (const c of memCaches.values()) {
+              const m = await c.match(req);
+              if (m) return m;
+            }
+            return undefined;
+          },
+          has: async (name) => memCaches.has(name),
+          delete: async (name) => memCaches.delete(name),
+          keys: async () => Array.from(memCaches.keys())
+        };
+        Object.defineProperty(window, 'caches', { value: cacheStorageShim, configurable: true });
       } catch (e) {}
 
       try {
@@ -1203,11 +1526,20 @@ function buildClientShim(targetUrl) {
         return url;
       }
 
+      const __proxyCreatedBlobs = new Set();
+
+      function isBlobObjectUrl(u) {
+        if (!u) return false;
+        const s = String(u).trim();
+        return __proxyCreatedBlobs.has(s) || /^blob:(?:https?:\\/\\/[^/]+|null)\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      }
+
       function resolveTarget(url) {
         if (!url) return "";
         try {
           let str = String(url).trim();
           if (str === window.location.href || str === TARGET_URL) return TARGET_URL;
+          if (isBlobObjectUrl(str)) return str;
           if (str.startsWith("blob:")) {
             str = str.slice(5);
           }
@@ -1227,7 +1559,7 @@ function buildClientShim(targetUrl) {
       function isInternalUrl(u) {
         if (!u) return true;
         const str = String(u).trim();
-        return str.startsWith('data:') || str.startsWith('javascript:') || str.startsWith('#');
+        return str.startsWith('data:') || str.startsWith('javascript:') || str.startsWith('#') || isBlobObjectUrl(str);
       }
 
       function sanitizeCode(code) {
@@ -1287,21 +1619,64 @@ function buildClientShim(targetUrl) {
         });
       } catch (e) {}
 
+      function updateVirtualLocation(nextUrl, fireHashChange) {
+        try {
+          const oldUrl = currentTargetUrl;
+          const prevHash = parsedTarget.hash;
+          const nextParsed = new URL(nextUrl, currentTargetUrl);
+          parsedTarget = nextParsed;
+          currentTargetUrl = nextParsed.href;
+          window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: currentTargetUrl }, '*');
+          if (fireHashChange && prevHash !== nextParsed.hash && typeof HashChangeEvent === 'function') {
+            window.dispatchEvent(new HashChangeEvent('hashchange', { oldURL: oldUrl, newURL: currentTargetUrl }));
+          }
+        } catch (e) {}
+      }
+
       const __proxyLocation = {
         get href() { return parsedTarget.href; },
-        set href(val) { window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(val)) }, '*'); },
+        set href(val) {
+          const resolved = unwrap(resolveTarget(val));
+          if (resolved && resolved.split('#')[0] === currentTargetUrl.split('#')[0] && resolved.includes('#')) {
+            updateVirtualLocation(resolved, true);
+            return;
+          }
+          window.parent.postMessage({ type: 'PROXY_NAV', url: resolved }, '*');
+        },
         get protocol() { return parsedTarget.protocol; },
         get host() { return parsedTarget.host; },
         get hostname() { return parsedTarget.hostname; },
         get port() { return parsedTarget.port; },
         get pathname() { return parsedTarget.pathname; },
+        set pathname(val) {
+          try {
+            const u = new URL(currentTargetUrl);
+            u.pathname = String(val || '');
+            window.parent.postMessage({ type: 'PROXY_NAV', url: u.href }, '*');
+          } catch (e) {}
+        },
         get search() { return parsedTarget.search; },
+        set search(val) {
+          try {
+            const u = new URL(currentTargetUrl);
+            u.search = String(val || '');
+            window.parent.postMessage({ type: 'PROXY_NAV', url: u.href }, '*');
+          } catch (e) {}
+        },
         get hash() { return parsedTarget.hash; },
+        set hash(val) {
+          try {
+            const h = String(val || '');
+            const u = new URL(currentTargetUrl);
+            u.hash = h.startsWith('#') ? h : ('#' + h);
+            updateVirtualLocation(u.href, true);
+          } catch (e) {}
+        },
         get origin() { return parsedTarget.origin; },
-        assign: (url) => window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*'),
-        replace: (url) => window.parent.postMessage({ type: 'PROXY_NAV', url: unwrap(resolveTarget(url)) }, '*'),
-        reload: () => window.parent.postMessage({ type: 'PROXY_NAV', url: TARGET_URL }, '*'),
-        toString: () => TARGET_URL
+        assign: (url) => { __proxyLocation.href = url; },
+        replace: (url) => { __proxyLocation.href = url; },
+        reload: () => window.parent.postMessage({ type: 'PROXY_NAV', url: currentTargetUrl }, '*'),
+        toString: () => currentTargetUrl
       };
       window.__proxyLocation = __proxyLocation;
 
@@ -1311,11 +1686,11 @@ function buildClientShim(targetUrl) {
           configurable: true
         });
         Object.defineProperty(document, 'URL', {
-          get: () => TARGET_URL,
+          get: () => currentTargetUrl,
           configurable: true
         });
         Object.defineProperty(document, 'documentURI', {
-          get: () => TARGET_URL,
+          get: () => currentTargetUrl,
           configurable: true
         });
         Object.defineProperty(document, 'domain', {
@@ -1329,6 +1704,8 @@ function buildClientShim(targetUrl) {
           configurable: true
         });
       } catch (e) {}
+
+      const __proxyBlobMap = new Map();
 
       try {
         const OrigURL = window.URL;
@@ -1347,7 +1724,7 @@ function buildClientShim(targetUrl) {
           let safeUrl = url;
           if (safeUrl && typeof safeUrl === 'object' && typeof safeUrl.href === 'string') safeUrl = safeUrl.href;
           if (typeof safeUrl === 'string') {
-            if (safeUrl.startsWith('blob:') || safeUrl === window.location.href) {
+            if ((safeUrl.startsWith('blob:') && !isBlobObjectUrl(safeUrl)) || safeUrl === window.location.href) {
               safeUrl = TARGET_URL;
             }
           } else {
@@ -1369,11 +1746,46 @@ function buildClientShim(targetUrl) {
           }
         }
         ProxiedURL.prototype = OrigURL.prototype;
-        ProxiedURL.createObjectURL = OrigURL.createObjectURL ? OrigURL.createObjectURL.bind(OrigURL) : undefined;
-        ProxiedURL.revokeObjectURL = OrigURL.revokeObjectURL ? OrigURL.revokeObjectURL.bind(OrigURL) : undefined;
+
+        ProxiedURL.createObjectURL = OrigURL.createObjectURL ? function(obj) {
+          const b = OrigURL.createObjectURL.call(OrigURL, obj);
+          __proxyCreatedBlobs.add(b);
+          if (obj && typeof obj.text === 'function') {
+            __proxyBlobMap.set(b, obj);
+          }
+          return b;
+        } : undefined;
+        ProxiedURL.revokeObjectURL = OrigURL.revokeObjectURL ? function(u) {
+          const key = String(u || '');
+          __proxyCreatedBlobs.delete(key);
+          __proxyBlobMap.delete(key);
+          return OrigURL.revokeObjectURL.call(OrigURL, u);
+        } : undefined;
+
         ProxiedURL.canParse = OrigURL.canParse ? OrigURL.canParse.bind(OrigURL) : undefined;
         ProxiedURL.parse = OrigURL.parse ? OrigURL.parse.bind(OrigURL) : undefined;
         window.URL = ProxiedURL;
+      } catch (e) {}
+
+      try {
+        const OrigRequest = window.Request;
+        if (OrigRequest) {
+          window.Request = function(input, init) {
+            let nextInput = input;
+            if (typeof nextInput === 'string' && !isInternalUrl(nextInput)) {
+              nextInput = resolveTarget(nextInput);
+            } else if (nextInput && typeof URL !== 'undefined' && nextInput instanceof URL) {
+              nextInput = resolveTarget(nextInput.href);
+            }
+            if (init && typeof init === 'object' && init.referrer && /^https?:/i.test(String(init.referrer))) {
+              const safeInit = Object.assign({}, init);
+              delete safeInit.referrer;
+              return new OrigRequest(nextInput, safeInit);
+            }
+            return new OrigRequest(nextInput, init);
+          };
+          window.Request.prototype = OrigRequest.prototype;
+        }
       } catch (e) {}
 
       function getLibcurl() {
@@ -1565,7 +1977,116 @@ function buildClientShim(targetUrl) {
         return false;
       }
 
-      async function loadModuleCodeAsBlob(rawCode, moduleUrl, isJson, rawBuf, cycleOwnerUrl) {
+      const workerModuleBlobCache = new Map();
+      const workerInFlightBlobs = new Map();
+
+      function buildWorkerShimHeader(workerUrl) {
+        const wUrl = workerUrl || TARGET_URL;
+        let wParsed = parsedTarget;
+        try { wParsed = new URL(wUrl); } catch (_) {}
+        return [
+          'if (!self.__proxyWorkerShimmed) {',
+          '  self.__proxyWorkerShimmed = true;',
+          '  try { self.__webpack_public_path__ = ' + JSON.stringify(wUrl.substring(0, wUrl.lastIndexOf('/') + 1)) + '; } catch(e) {}',
+          '  var __wUrl = ' + JSON.stringify(wUrl) + ';',
+          '  self.__proxyLocation = {',
+          '    href: __wUrl,',
+          '    origin: ' + JSON.stringify(wParsed.origin) + ',',
+          '    protocol: ' + JSON.stringify(wParsed.protocol) + ',',
+          '    host: ' + JSON.stringify(wParsed.host) + ',',
+          '    hostname: ' + JSON.stringify(wParsed.hostname) + ',',
+          '    port: ' + JSON.stringify(wParsed.port) + ',',
+          '    pathname: ' + JSON.stringify(wParsed.pathname) + ',',
+          '    search: ' + JSON.stringify(wParsed.search) + ',',
+          '    hash: ' + JSON.stringify(wParsed.hash) + ',',
+          '    toString: function() { return __wUrl; }',
+          '  };',
+          '  var _OrigWURL = self.URL;',
+          '  self.URL = function ProxiedWURL(u, b) {',
+          '    if (!(this instanceof ProxiedWURL)) return new ProxiedWURL(u, b);',
+          '    var sb = (typeof b === "string" && b.indexOf("blob:") === 0) ? __wUrl : (b || __wUrl);',
+          '    var su = (typeof u === "string" && u.indexOf("blob:") === 0 && !new RegExp("^blob:(?:https?://[^/]+|null)/[0-9a-f-]{36}$", "i").test(u)) ? __wUrl : u;',
+          '    try { return new _OrigWURL(su, sb); } catch (e1) { return new _OrigWURL(su, __wUrl); }',
+          '  };',
+          '  self.URL.prototype = _OrigWURL.prototype;',
+          '  self.URL.createObjectURL = _OrigWURL.createObjectURL ? _OrigWURL.createObjectURL.bind(_OrigWURL) : undefined;',
+          '  self.URL.revokeObjectURL = _OrigWURL.revokeObjectURL ? _OrigWURL.revokeObjectURL.bind(_OrigWURL) : undefined;',
+          '  var _origWFetch = self.fetch;',
+          '  var _pendingWFetch = new Map();',
+          '  var _pendingWImport = new Map();',
+          '  self.addEventListener("message", function(ev) {',
+          '    if (!ev.data) return;',
+          '    if (ev.data.__proxyWorkerFetchRes) {',
+          '      ev.stopImmediatePropagation();',
+          '      var pf = _pendingWFetch.get(ev.data.__proxyWorkerFetchRes);',
+          '      if (pf) {',
+          '        _pendingWFetch.delete(ev.data.__proxyWorkerFetchRes);',
+          '        if (ev.data.error) pf.reject(new Error(ev.data.error));',
+          '        else pf.resolve(new Response(ev.data.buf, { status: ev.data.status, statusText: ev.data.statusText, headers: new Headers(ev.data.headers || []) }));',
+          '      }',
+          '    } else if (ev.data.__proxyWorkerImportRes) {',
+          '      ev.stopImmediatePropagation();',
+          '      var pi = _pendingWImport.get(ev.data.__proxyWorkerImportRes);',
+          '      if (pi) {',
+          '        _pendingWImport.delete(ev.data.__proxyWorkerImportRes);',
+          '        if (ev.data.error) pi.reject(new Error(ev.data.error));',
+          '        else pi.resolve(ev.data.blobUrl);',
+          '      }',
+          '    }',
+          '  }, true);',
+          '  self.fetch = function(input, init) {',
+          '    var u = typeof input === "string" ? input : (input && input.url ? input.url : String(input || ""));',
+          '    if (!u || u.indexOf("data:") === 0 || u.indexOf("blob:") === 0) return _origWFetch.apply(self, arguments);',
+          '    var abs = u;',
+          '    try { abs = new _OrigWURL(u, __wUrl).href; } catch(e) {}',
+          '    var id = Math.random().toString(36).slice(2) + Date.now();',
+          '    return new Promise(function(resolve, reject) {',
+          '      _pendingWFetch.set(id, { resolve: resolve, reject: reject });',
+          '      self.postMessage({ __proxyWorkerFetch: id, url: abs, init: init ? { method: init.method, headers: init.headers, body: init.body } : {} });',
+          '    });',
+          '  };',
+          '  if (self.Request) {',
+          '    var _OrigWReq = self.Request;',
+          '    self.Request = function(input, init) {',
+          '      var nu = input;',
+          '      if (typeof nu === "string" && nu.indexOf("data:") !== 0 && nu.indexOf("blob:") !== 0) {',
+          '        try { nu = new _OrigWURL(nu, __wUrl).href; } catch(e) {}',
+          '      }',
+          '      if (init && typeof init === "object" && init.referrer && /^https?:/i.test(String(init.referrer))) {',
+          '        var si = Object.assign({}, init); delete si.referrer;',
+          '        return new _OrigWReq(nu, si);',
+          '      }',
+          '      return new _OrigWReq(nu, init);',
+          '    };',
+          '    self.Request.prototype = _OrigWReq.prototype;',
+          '  }',
+          '  self.__proxyResolveModule = function(baseUrl, spec) {',
+          '    try { return new _OrigWURL(String(spec || ""), baseUrl || __wUrl).href; } catch(e) { return String(spec || ""); }',
+          '  };',
+          '  self.__proxyImport = function(baseUrl, spec, options) {',
+          '    var resolved = self.__proxyResolveModule(baseUrl, spec);',
+          '    if (resolved.indexOf("blob:") === 0 || resolved.indexOf("data:") === 0) {',
+          '      return options !== undefined ? import(resolved, options) : import(resolved);',
+          '    }',
+          '    var id = Math.random().toString(36).slice(2) + Date.now();',
+          '    return new Promise(function(resolve, reject) {',
+          '      _pendingWImport.set(id, { resolve: resolve, reject: reject });',
+          '      self.postMessage({ __proxyWorkerImport: id, url: resolved });',
+          '    }).then(function(blobUrl) {',
+          '      return options !== undefined ? import(blobUrl, options) : import(blobUrl);',
+          '    });',
+          '  };',
+          '  self.addEventListener("error", function(ev) {',
+          '    try { self.postMessage({ __proxyWorkerError: ev.message || (ev.error && ev.error.message) || "Worker error" }); } catch(e) {}',
+          '  });',
+          '  self.addEventListener("unhandledrejection", function(ev) {',
+          '    try { self.postMessage({ __proxyWorkerError: "Unhandled rejection: " + (ev.reason ? (ev.reason.message || ev.reason) : "") }); } catch(e) {}',
+          '  });',
+          '}'
+        ].join('\\n') + '\\n';
+      }
+
+      async function loadModuleCodeAsBlob(rawCode, moduleUrl, isJson, rawBuf, cycleOwnerUrl, isWorker = false) {
         if (isJson) {
           const jsonBlob = new Blob([rawBuf], { type: "application/json" });
           return URL.createObjectURL(jsonBlob);
@@ -1587,14 +2108,20 @@ function buildClientShim(targetUrl) {
             if (cycleOwnerUrl && wouldDeadlock(cycleOwnerUrl, depUrl)) {
               return Promise.resolve(depUrl);
             }
-            return loadModuleAsBlob(depUrl, cycleOwnerUrl);
+            return loadModuleAsBlob(depUrl, cycleOwnerUrl, isWorker);
           }));
         }
-        let rewritten = "";
+        let rewritten = isWorker ? buildWorkerShimHeader(moduleUrl) : "";
         for (let idx = 0; idx < scanned.chunks.length; idx++) {
           const part = scanned.chunks[idx];
           if (typeof part === "string") {
-            rewritten += sanitizeCode(part);
+            let cleanPart = sanitizeCode(part);
+            if (isWorker) {
+              cleanPart = cleanPart
+                .replace(/\\bwindow\\.__proxyImport\\(/g, "self.__proxyImport(")
+                .replace(/\\bwindow\\.__proxyResolveModule\\(/g, "self.__proxyResolveModule(");
+            }
+            rewritten += cleanPart;
           } else {
             rewritten += JSON.stringify(depUrls[part.depIdx]);
           }
@@ -1603,32 +2130,34 @@ function buildClientShim(targetUrl) {
         return URL.createObjectURL(modBlob);
       }
 
-      async function loadModuleAsBlob(moduleUrl, waiterUrl) {
+      async function loadModuleAsBlob(moduleUrl, waiterUrl, isWorker = false) {
         if (moduleUrl.startsWith("blob:") || moduleUrl.startsWith("data:")) return moduleUrl;
-        if (moduleBlobCache.has(moduleUrl)) return moduleBlobCache.get(moduleUrl);
-        if (inFlightBlobs.has(moduleUrl) && !wouldDeadlock(waiterUrl, moduleUrl)) {
-          return await inFlightBlobs.get(moduleUrl);
+        const cache = isWorker ? workerModuleBlobCache : moduleBlobCache;
+        const flight = isWorker ? workerInFlightBlobs : inFlightBlobs;
+        if (cache.has(moduleUrl)) return cache.get(moduleUrl);
+        if (flight.has(moduleUrl) && !wouldDeadlock(waiterUrl, moduleUrl)) {
+          return await flight.get(moduleUrl);
         }
         const buildPromise = (async () => {
           const resource = await fetchModuleResource(moduleUrl);
           const finalUrl = resource.url || moduleUrl;
-          if (finalUrl !== moduleUrl && moduleBlobCache.has(finalUrl)) {
-            const cached = moduleBlobCache.get(finalUrl);
-            moduleBlobCache.set(moduleUrl, cached);
+          if (finalUrl !== moduleUrl && cache.has(finalUrl)) {
+            const cached = cache.get(finalUrl);
+            cache.set(moduleUrl, cached);
             return cached;
           }
-          const blobUrl = await loadModuleCodeAsBlob(resource.code, finalUrl, resource.isJson, resource.buf, moduleUrl);
-          moduleBlobCache.set(moduleUrl, blobUrl);
-          moduleBlobCache.set(finalUrl, blobUrl);
+          const blobUrl = await loadModuleCodeAsBlob(resource.code, finalUrl, resource.isJson, resource.buf, moduleUrl, isWorker);
+          cache.set(moduleUrl, blobUrl);
+          cache.set(finalUrl, blobUrl);
           return blobUrl;
         })();
-        if (!inFlightBlobs.has(moduleUrl)) {
-          inFlightBlobs.set(moduleUrl, buildPromise);
+        if (!flight.has(moduleUrl)) {
+          flight.set(moduleUrl, buildPromise);
         }
         try {
           return await buildPromise;
         } finally {
-          if (inFlightBlobs.get(moduleUrl) === buildPromise) inFlightBlobs.delete(moduleUrl);
+          if (flight.get(moduleUrl) === buildPromise) flight.delete(moduleUrl);
           inFlightDeps.delete(moduleUrl);
         }
       }
@@ -1651,72 +2180,898 @@ function buildClientShim(targetUrl) {
         return loadModuleAsBlob(url, null).catch(() => {});
       };
 
-      function patchImage(img) {
-        if (img.__proxied) return;
-        img.__proxied = true;
-        const origSetAttr = img.setAttribute.bind(img);
+      const __proxyAssetBlobCache = new Map();
 
-        let realSrc = '';
-        Object.defineProperty(img, 'src', {
-          get: () => realSrc || img.getAttribute('data-proxied-src') || '',
-          set: (val) => {
-            realSrc = resolveTarget(val);
-            origSetAttr('data-proxied-src', realSrc);
-            if (!isInternalUrl(realSrc)) {
-              executeTunnelRequest(realSrc, { method: 'GET' }).then(async (res) => {
-                const buf = await res.arrayBuffer();
-                let mime = 'image/png';
-                if (res.headers) {
-                  if (typeof res.headers.get === 'function') mime = res.headers.get('content-type') || mime;
-                  else if (Array.isArray(res.headers)) {
-                    const ct = res.headers.find(([k]) => k.toLowerCase() === 'content-type');
-                    if (ct) mime = ct[1];
-                  }
-                }
-                const blob = new Blob([buf], { type: mime });
-                const blobUrl = URL.createObjectURL(blob);
-                origSetAttr('src', blobUrl);
-                img.removeAttribute('srcset');
-                img.dispatchEvent(new Event('load'));
-                if (typeof img.onload === 'function') {
-                  try { img.onload(new Event('load')); } catch(e) {}
-                }
-              }).catch(() => {
-                origSetAttr('src', realSrc);
-                img.dispatchEvent(new Event('error'));
-                if (typeof img.onerror === 'function') {
-                  try { img.onerror(new Event('error')); } catch(e) {}
-                }
-              });
-            } else {
-              origSetAttr('src', realSrc);
-            }
-          },
-          configurable: true
-        });
-
-        img.setAttribute = function(name, val) {
-          if (name && name.toLowerCase() === 'src') {
-            img.src = val;
-          } else if (name && name.toLowerCase() === 'srcset') {
-            origSetAttr('data-orig-srcset', val);
-          } else {
-            origSetAttr(name, val);
-          }
-        };
+      function inferAssetMime(url, contentType) {
+        const ct = String(contentType || '').split(';')[0].trim().toLowerCase();
+        if (ct && ct !== 'application/octet-stream' && ct !== 'binary/octet-stream') return ct;
+        const clean = String(url || '').split(/[?#]/)[0].toLowerCase();
+        if (clean.endsWith('.webp')) return 'image/webp';
+        if (clean.endsWith('.png')) return 'image/png';
+        if (clean.endsWith('.jpg') || clean.endsWith('.jpeg')) return 'image/jpeg';
+        if (clean.endsWith('.gif')) return 'image/gif';
+        if (clean.endsWith('.svg')) return 'image/svg+xml';
+        if (clean.endsWith('.avif')) return 'image/avif';
+        if (clean.endsWith('.ico')) return 'image/x-icon';
+        if (clean.endsWith('.bmp')) return 'image/bmp';
+        if (clean.endsWith('.woff2')) return 'font/woff2';
+        if (clean.endsWith('.woff')) return 'font/woff';
+        if (clean.endsWith('.ttf')) return 'font/ttf';
+        if (clean.endsWith('.otf')) return 'font/otf';
+        return 'application/octet-stream';
       }
 
-      const OrigImage = window.Image;
-      if (OrigImage) {
-        window.Image = function(width, height) {
-          const img = new OrigImage(width, height);
-          patchImage(img);
-          return img;
-        };
-        window.Image.prototype = OrigImage.prototype;
+      function fetchAssetAsBlobUrl(absUrl) {
+        const key = String(absUrl || '').trim();
+        if (!key) return Promise.reject(new Error('Empty asset URL'));
+        if (__proxyAssetBlobCache.has(key)) return __proxyAssetBlobCache.get(key);
+
+        const p = (async () => {
+          let curUrl = key;
+          for (let hop = 0; hop < 6; hop++) {
+            const res = await executeTunnelRequest(curUrl, {
+              method: 'GET',
+              headers: {
+                'User-Agent': SPOOFED_UA,
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Referer': TARGET_URL
+              }
+            });
+            const status = res && typeof res.status === 'number' ? res.status : 200;
+            if (status >= 300 && status < 400) {
+              const loc = getHeaderVal(res.headers, 'location');
+              if (loc) {
+                curUrl = resolveTarget(new URL(loc, curUrl).href);
+                continue;
+              }
+            }
+            if (status >= 400) {
+              throw new Error('Asset HTTP ' + status + ': ' + curUrl);
+            }
+            const buf = await res.arrayBuffer();
+            const mime = inferAssetMime(res.url || curUrl, getHeaderVal(res.headers, 'content-type'));
+            const blob = new Blob([buf], { type: mime });
+            const blobUrl = URL.createObjectURL(blob);
+            __proxyCreatedBlobs.add(blobUrl);
+            return blobUrl;
+          }
+          throw new Error('Too many redirects: ' + key);
+        })().catch((err) => {
+          __proxyAssetBlobCache.delete(key);
+          throw err;
+        });
+
+        __proxyAssetBlobCache.set(key, p);
+        return p;
+      }
+
+      const CSS_URL_RE = /url\\(\\s*(?:'([^']*)'|"([^"]*)"|([^)'"\\s]+))\\s*\\)/gi;
+
+      function hasExternalCssUrl(text) {
+        if (!text || typeof text !== 'string' || !text.includes('url(')) return false;
+        CSS_URL_RE.lastIndex = 0;
+        let m;
+        while ((m = CSS_URL_RE.exec(text)) !== null) {
+          const raw = (m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3])) || '';
+          if (raw && !isInternalUrl(raw)) return true;
+        }
+        return false;
+      }
+
+      function neutralizeExternalCssUrls(text) {
+        if (!text || typeof text !== 'string') return text;
+        return text.replace(CSS_URL_RE, (full, q1, q2, q3) => {
+          const raw = (q1 !== undefined ? q1 : (q2 !== undefined ? q2 : q3)) || '';
+          if (!raw || isInternalUrl(raw)) return full;
+          return 'url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")';
+        });
+      }
+
+      async function inlineCssUrlsInShim(cssText, baseUrl) {
+        if (!cssText || typeof cssText !== 'string' || !cssText.includes('url(')) return cssText;
+        const matches = [...cssText.matchAll(CSS_URL_RE)];
+        const uniqueMap = new Map();
+        const resolveBase = baseUrl || TARGET_URL;
+
+        for (const m of matches) {
+          const raw = (m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3])) || '';
+          if (!raw || isInternalUrl(raw) || uniqueMap.has(raw)) continue;
+          let absUrl = '';
+          try {
+            absUrl = new URL(raw, resolveBase).href;
+          } catch (_) {
+            absUrl = resolveTarget(raw);
+          }
+          uniqueMap.set(raw, absUrl);
+        }
+
+        if (uniqueMap.size === 0) return cssText;
+
+        const blobMap = new Map();
+        await Promise.allSettled([...uniqueMap.entries()].map(async ([raw, absUrl]) => {
+          const blobUrl = await fetchAssetAsBlobUrl(absUrl);
+          if (blobUrl) blobMap.set(raw, blobUrl);
+        }));
+
+        return cssText.replace(CSS_URL_RE, (full, q1, q2, q3) => {
+          const raw = (q1 !== undefined ? q1 : (q2 !== undefined ? q2 : q3)) || '';
+          const blobUrl = blobMap.get(raw);
+          return blobUrl ? 'url("' + blobUrl + '")' : full;
+        });
+      }
+
+      function parseSrcsetCandidates(srcsetStr) {
+        const out = [];
+        const parts = String(srcsetStr || '').split(/,(?=\\s*\\S+(?:\\s+[^,]+)?$)|,(?=\\s*(?:https?:|data:|blob:|\\/|\\.))/i);
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+          const sp = trimmed.search(/\\s/);
+          if (sp === -1) out.push({ url: trimmed, desc: '' });
+          else out.push({ url: trimmed.slice(0, sp), desc: trimmed.slice(sp) });
+        }
+        return out;
+      }
+
+      async function rewriteSrcsetInShim(srcsetStr, baseUrl) {
+        const candidates = parseSrcsetCandidates(srcsetStr);
+        if (candidates.length === 0) return srcsetStr;
+        const resolved = await Promise.all(candidates.map(async (c) => {
+          if (!c.url || isInternalUrl(c.url)) return c.url + c.desc;
+          let absUrl = '';
+          try {
+            absUrl = new URL(c.url, baseUrl || TARGET_URL).href;
+          } catch (_) {
+            absUrl = resolveTarget(c.url);
+          }
+          try {
+            const blobUrl = await fetchAssetAsBlobUrl(absUrl);
+            return blobUrl + c.desc;
+          } catch (_) {
+            return '';
+          }
+        }));
+        return resolved.filter(Boolean).join(', ');
       }
 
       const origCreateElement = document.createElement.bind(document);
+      const origSetAttribute = Element.prototype.setAttribute;
+      const origSetAttributeNS = Element.prototype.setAttributeNS;
+      const origGetAttribute = Element.prototype.getAttribute;
+      const origRemoveAttribute = Element.prototype.removeAttribute;
+
+      const origImgSrcDesc = typeof HTMLImageElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src') : null;
+      const origImgSrcsetDesc = typeof HTMLImageElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'srcset') : null;
+      const origSourceSrcsetDesc = typeof HTMLSourceElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'srcset') : null;
+      const origSourceSrcDesc = typeof HTMLSourceElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'src') : null;
+
+      const __proxyImgPendingPromise = new WeakMap();
+      const origImgCompleteDesc = typeof HTMLImageElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'complete') : null;
+      const origImgDecode = typeof HTMLImageElement !== 'undefined' ? HTMLImageElement.prototype.decode : null;
+
+      function loadProxiedImgSrc(img, val) {
+        if (!origImgSrcDesc || !origImgSrcDesc.set) return;
+        const str = val === null || val === undefined ? '' : String(val).trim();
+        if (!str) {
+          __proxyImgPendingPromise.delete(img);
+          origRemoveAttribute.call(img, 'data-proxied-src');
+          origImgSrcDesc.set.call(img, '');
+          return;
+        }
+        if (isInternalUrl(str)) {
+          __proxyImgPendingPromise.delete(img);
+          origRemoveAttribute.call(img, 'data-proxied-src');
+          origImgSrcDesc.set.call(img, str);
+          return;
+        }
+        const realSrc = resolveTarget(str);
+        origSetAttribute.call(img, 'data-proxied-src', realSrc);
+        origRemoveAttribute.call(img, 'src');
+        const tok = (img.__imgReqToken = (img.__imgReqToken || 0) + 1);
+        const pendingP = fetchAssetAsBlobUrl(realSrc).then((blobUrl) => {
+          if (img.__imgReqToken !== tok) return;
+          __proxyImgPendingPromise.delete(img);
+          origImgSrcDesc.set.call(img, blobUrl);
+          origSetAttribute.call(img, 'data-proxied-loaded', '1');
+          origRemoveAttribute.call(img, 'srcset');
+        }).catch(() => {
+          if (img.__imgReqToken !== tok) return;
+          __proxyImgPendingPromise.delete(img);
+          img.dispatchEvent(new Event('error'));
+          if (typeof img.onerror === 'function') {
+            try { img.onerror(new Event('error')); } catch (_) {}
+          }
+        });
+        __proxyImgPendingPromise.set(img, pendingP);
+      }
+
+      function loadProxiedImgSrcset(img, val) {
+        if (!val) {
+          if (origImgSrcsetDesc && origImgSrcsetDesc.set) origImgSrcsetDesc.set.call(img, val || '');
+          return;
+        }
+        const str = String(val).trim();
+        if (isInternalUrl(str)) {
+          if (origImgSrcsetDesc && origImgSrcsetDesc.set) origImgSrcsetDesc.set.call(img, str);
+          return;
+        }
+        origSetAttribute.call(img, 'data-orig-srcset', str);
+        const candidates = parseSrcsetCandidates(str);
+        if (candidates.length > 0 && !origGetAttribute.call(img, 'data-proxied-src') && !origGetAttribute.call(img, 'src')) {
+          loadProxiedImgSrc(img, candidates[0].url);
+          return;
+        }
+        const tok = (img.__srcsetReqToken = (img.__srcsetReqToken || 0) + 1);
+        rewriteSrcsetInShim(str, TARGET_URL).then((rewritten) => {
+          if (img.__srcsetReqToken !== tok || !rewritten) return;
+          if (origImgSrcsetDesc && origImgSrcsetDesc.set) origImgSrcsetDesc.set.call(img, rewritten);
+        }).catch(() => {});
+      }
+
+      function loadProxiedSourceEl(sourceEl, prop, val) {
+        const str = val === null || val === undefined ? '' : String(val).trim();
+        if (!str || isInternalUrl(str)) {
+          if (prop === 'srcset' && origSourceSrcsetDesc && origSourceSrcsetDesc.set) origSourceSrcsetDesc.set.call(sourceEl, str);
+          else if (prop === 'src' && origSourceSrcDesc && origSourceSrcDesc.set) origSourceSrcDesc.set.call(sourceEl, str);
+          return;
+        }
+        if (prop === 'srcset') {
+          origSetAttribute.call(sourceEl, 'data-orig-srcset', str);
+          const tok = (sourceEl.__srcsetReqToken = (sourceEl.__srcsetReqToken || 0) + 1);
+          rewriteSrcsetInShim(str, TARGET_URL).then((rewritten) => {
+            if (sourceEl.__srcsetReqToken !== tok || !rewritten) return;
+            if (origSourceSrcsetDesc && origSourceSrcsetDesc.set) origSourceSrcsetDesc.set.call(sourceEl, rewritten);
+          }).catch(() => {});
+        } else if (prop === 'src') {
+          const realSrc = resolveTarget(str);
+          origSetAttribute.call(sourceEl, 'data-proxied-src', realSrc);
+          const tok = (sourceEl.__srcReqToken = (sourceEl.__srcReqToken || 0) + 1);
+          fetchAssetAsBlobUrl(realSrc).then((blobUrl) => {
+            if (sourceEl.__srcReqToken !== tok) return;
+            if (origSourceSrcDesc && origSourceSrcDesc.set) origSourceSrcDesc.set.call(sourceEl, blobUrl);
+          }).catch(() => {});
+        }
+      }
+
+      function loadProxiedSvgImage(svgImg, attrName, val, ns) {
+        const str = val === null || val === undefined ? '' : String(val).trim();
+        if (!str || isInternalUrl(str)) {
+          if (ns) origSetAttributeNS.call(svgImg, ns, attrName, str);
+          else origSetAttribute.call(svgImg, attrName, str);
+          return;
+        }
+        const realHref = resolveTarget(str);
+        origSetAttribute.call(svgImg, 'data-proxied-href', realHref);
+        const tok = (svgImg.__svgImgToken = (svgImg.__svgImgToken || 0) + 1);
+        fetchAssetAsBlobUrl(realHref).then((blobUrl) => {
+          if (svgImg.__svgImgToken !== tok) return;
+          if (ns) origSetAttributeNS.call(svgImg, ns, attrName, blobUrl);
+          else origSetAttribute.call(svgImg, attrName, blobUrl);
+        }).catch(() => {
+          if (svgImg.__svgImgToken !== tok) return;
+          svgImg.dispatchEvent(new Event('error'));
+        });
+      }
+
+      function splitCssDeclsWithUrls(styleStr) {
+        const out = [];
+        let cur = '';
+        let paren = 0;
+        let quote = null;
+        for (let i = 0; i < styleStr.length; i++) {
+          const ch = styleStr[i];
+          if (quote) {
+            cur += ch;
+            if (ch === '\\\\' && i + 1 < styleStr.length) {
+              i++;
+              cur += styleStr[i];
+            } else if (ch === quote) {
+              quote = null;
+            }
+          } else if (ch === "'" || ch === '"') {
+            quote = ch;
+            cur += ch;
+          } else if (ch === '(') {
+            paren++;
+            cur += ch;
+          } else if (ch === ')' && paren > 0) {
+            paren--;
+            cur += ch;
+          } else if (ch === ';' && paren === 0) {
+            const d = cur.trim();
+            if (d) out.push(d);
+            cur = '';
+          } else {
+            cur += ch;
+          }
+        }
+        const tail = cur.trim();
+        if (tail) out.push(tail);
+        return out;
+      }
+
+      const styleTokenCounter = new WeakMap();
+      const origCssSetProperty = CSSStyleDeclaration.prototype.setProperty;
+
+      function applyStyleWithTunnel(styleDecl, propKey, rawVal, applyFn) {
+        const valStr = rawVal === null || rawVal === undefined ? '' : String(rawVal);
+        if (!hasExternalCssUrl(valStr)) {
+          applyFn(valStr);
+          return;
+        }
+        let tokMap = styleTokenCounter.get(styleDecl);
+        if (!tokMap) {
+          tokMap = new Map();
+          styleTokenCounter.set(styleDecl, tokMap);
+        }
+        const tok = (tokMap.get(propKey) || 0) + 1;
+        tokMap.set(propKey, tok);
+        applyFn(neutralizeExternalCssUrls(valStr));
+        inlineCssUrlsInShim(valStr, TARGET_URL).then((inlined) => {
+          if (tokMap.get(propKey) !== tok) return;
+          applyFn(inlined);
+        }).catch(() => {});
+      }
+
+      function patchStyleUrlsOnly(styleDecl, rawStyleStr) {
+        const decls = splitCssDeclsWithUrls(rawStyleStr);
+        for (const decl of decls) {
+          const colonIdx = decl.indexOf(':');
+          if (colonIdx <= 0) continue;
+          const rawProp = decl.slice(0, colonIdx).trim();
+          const prop = rawProp.startsWith('--') ? rawProp : rawProp.toLowerCase();
+          const valRaw = decl.slice(colonIdx + 1).trim();
+          if (!hasExternalCssUrl(valRaw)) continue;
+          const isImp = /\\s*!important\\s*$/i.test(valRaw);
+          const cleanVal = isImp ? valRaw.replace(/\\s*!important\\s*$/i, '').trim() : valRaw;
+          const priority = isImp ? 'important' : '';
+          applyStyleWithTunnel(styleDecl, prop, cleanVal, (v) => {
+            origCssSetProperty.call(styleDecl, prop, v, priority);
+          });
+        }
+      }
+
+      function applyInlineStyleTextProxied(el, styleStr) {
+        if (!hasExternalCssUrl(styleStr)) {
+          origSetAttribute.call(el, 'style', styleStr);
+          return;
+        }
+        origSetAttribute.call(el, 'style', neutralizeExternalCssUrls(styleStr));
+        patchStyleUrlsOnly(el.style, styleStr);
+      }
+
+      if (origImgSrcDesc && origImgSrcDesc.configurable !== false) {
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+          get: function() {
+            return origGetAttribute.call(this, 'data-proxied-src') || (origImgSrcDesc.get ? origImgSrcDesc.get.call(this) : '');
+          },
+          set: function(val) {
+            loadProxiedImgSrc(this, val);
+          },
+          configurable: true
+        });
+      }
+
+      if (origImgCompleteDesc && origImgCompleteDesc.configurable !== false) {
+        Object.defineProperty(HTMLImageElement.prototype, 'complete', {
+          get: function() {
+            if (__proxyImgPendingPromise.has(this)) return false;
+            return origImgCompleteDesc.get ? origImgCompleteDesc.get.call(this) : true;
+          },
+          configurable: true
+        });
+      }
+
+      if (origImgDecode) {
+        HTMLImageElement.prototype.decode = async function() {
+          const pending = __proxyImgPendingPromise.get(this);
+          if (pending) {
+            await pending.catch(() => {});
+          }
+          return await origImgDecode.call(this);
+        };
+      }
+
+      Element.prototype.getAttribute = function(name) {
+        const lname = name ? String(name).toLowerCase() : '';
+        if (typeof HTMLImageElement !== 'undefined' && this instanceof HTMLImageElement && lname === 'src') {
+          const real = origGetAttribute.call(this, 'src');
+          if (real) return real;
+          const proxied = origGetAttribute.call(this, 'data-proxied-src');
+          if (proxied) return proxied;
+        }
+        return origGetAttribute.call(this, name);
+      };
+
+      const origHasAttribute = Element.prototype.hasAttribute;
+      Element.prototype.hasAttribute = function(name) {
+        const lname = name ? String(name).toLowerCase() : '';
+        if (typeof HTMLImageElement !== 'undefined' && this instanceof HTMLImageElement && lname === 'src') {
+          if (origHasAttribute.call(this, 'src') || origHasAttribute.call(this, 'data-proxied-src')) return true;
+        }
+        return origHasAttribute.call(this, name);
+      };
+
+      if (origImgSrcsetDesc && origImgSrcsetDesc.configurable !== false) {
+        Object.defineProperty(HTMLImageElement.prototype, 'srcset', {
+          get: function() {
+            return origGetAttribute.call(this, 'data-orig-srcset') || (origImgSrcsetDesc.get ? origImgSrcsetDesc.get.call(this) : '');
+          },
+          set: function(val) {
+            loadProxiedImgSrcset(this, val);
+          },
+          configurable: true
+        });
+      }
+
+      if (origSourceSrcsetDesc && origSourceSrcsetDesc.configurable !== false) {
+        Object.defineProperty(HTMLSourceElement.prototype, 'srcset', {
+          get: function() {
+            return origGetAttribute.call(this, 'data-orig-srcset') || (origSourceSrcsetDesc.get ? origSourceSrcsetDesc.get.call(this) : '');
+          },
+          set: function(val) {
+            loadProxiedSourceEl(this, 'srcset', val);
+          },
+          configurable: true
+        });
+      }
+
+      if (origSourceSrcDesc && origSourceSrcDesc.configurable !== false) {
+        Object.defineProperty(HTMLSourceElement.prototype, 'src', {
+          get: function() {
+            return origGetAttribute.call(this, 'data-proxied-src') || (origSourceSrcDesc.get ? origSourceSrcDesc.get.call(this) : '');
+          },
+          set: function(val) {
+            loadProxiedSourceEl(this, 'src', val);
+          },
+          configurable: true
+        });
+      }
+
+      Element.prototype.setAttribute = function(name, val) {
+        const lname = name ? String(name).toLowerCase() : '';
+        if (typeof HTMLImageElement !== 'undefined' && this instanceof HTMLImageElement) {
+          if (lname === 'src') { loadProxiedImgSrc(this, val); return; }
+          if (lname === 'srcset') { loadProxiedImgSrcset(this, val); return; }
+        } else if (typeof HTMLSourceElement !== 'undefined' && this instanceof HTMLSourceElement) {
+          if (lname === 'srcset') { loadProxiedSourceEl(this, 'srcset', val); return; }
+          if (lname === 'src') { loadProxiedSourceEl(this, 'src', val); return; }
+        } else if (typeof SVGImageElement !== 'undefined' && this instanceof SVGImageElement) {
+          if (lname === 'href' || lname === 'xlink:href') { loadProxiedSvgImage(this, name, val, null); return; }
+        }
+        if (lname === 'style' && typeof val === 'string' && hasExternalCssUrl(val)) {
+          applyInlineStyleTextProxied(this, val);
+          return;
+        }
+        origSetAttribute.call(this, name, val);
+      };
+
+      Element.prototype.setAttributeNS = function(ns, name, val) {
+        const lname = name ? String(name).toLowerCase() : '';
+        if (typeof SVGImageElement !== 'undefined' && this instanceof SVGImageElement) {
+          if (lname === 'href' || lname.endsWith(':href')) {
+            loadProxiedSvgImage(this, name, val, ns);
+            return;
+          }
+        }
+        origSetAttributeNS.call(this, ns, name, val);
+      };
+
+      try {
+        const styleProto = CSSStyleDeclaration.prototype;
+        const origCssTextDesc = Object.getOwnPropertyDescriptor(styleProto, 'cssText');
+
+        styleProto.setProperty = function(prop, val, priority) {
+          applyStyleWithTunnel(this, String(prop || '').toLowerCase(), val, (v) => {
+            origCssSetProperty.call(this, prop, v, priority);
+          });
+        };
+
+        if (origCssTextDesc && origCssTextDesc.configurable !== false) {
+          Object.defineProperty(styleProto, 'cssText', {
+            get: function() { return origCssTextDesc.get.call(this); },
+            set: function(val) {
+              const valStr = val === null || val === undefined ? '' : String(val);
+              if (!hasExternalCssUrl(valStr)) {
+                origCssTextDesc.set.call(this, valStr);
+                return;
+              }
+              origCssTextDesc.set.call(this, neutralizeExternalCssUrls(valStr));
+              patchStyleUrlsOnly(this, valStr);
+            },
+            configurable: true
+          });
+        }
+
+        ['backgroundImage', 'background', 'maskImage', 'webkitMaskImage', 'borderImageSource', 'listStyleImage'].forEach((propName) => {
+          const desc = Object.getOwnPropertyDescriptor(styleProto, propName);
+          if (!desc || desc.configurable === false || !desc.set) return;
+          const cssProp = propName.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+          Object.defineProperty(styleProto, propName, {
+            get: function() { return desc.get.call(this); },
+            set: function(val) {
+              applyStyleWithTunnel(this, cssProp, val, (v) => {
+                desc.set.call(this, v);
+              });
+            },
+            configurable: true
+          });
+        });
+      } catch (_) {}
+
+      try {
+        if (typeof CSSStyleSheet !== 'undefined') {
+          const origInsertRule = CSSStyleSheet.prototype.insertRule;
+          const origReplaceSync = CSSStyleSheet.prototype.replaceSync;
+          const origReplace = CSSStyleSheet.prototype.replace;
+          if (origInsertRule) {
+            CSSStyleSheet.prototype.insertRule = function(rule, index) {
+              if (typeof rule === 'string' && hasExternalCssUrl(rule)) {
+                const idx = origInsertRule.call(this, neutralizeExternalCssUrls(rule), index);
+                inlineCssUrlsInShim(rule, TARGET_URL).then((inlined) => {
+                  try {
+                    if (this.cssRules && idx >= 0 && idx < this.cssRules.length) {
+                      this.deleteRule(idx);
+                      origInsertRule.call(this, inlined, idx);
+                    }
+                  } catch (_) {}
+                }).catch(() => {});
+                return idx;
+              }
+              return origInsertRule.call(this, rule, index);
+            };
+          }
+          if (origReplaceSync) {
+            CSSStyleSheet.prototype.replaceSync = function(text) {
+              if (typeof text === 'string' && hasExternalCssUrl(text)) {
+                origReplaceSync.call(this, neutralizeExternalCssUrls(text));
+                inlineCssUrlsInShim(text, TARGET_URL).then((inlined) => {
+                  try { origReplaceSync.call(this, inlined); } catch (_) {}
+                }).catch(() => {});
+                return;
+              }
+              return origReplaceSync.call(this, text);
+            };
+          }
+          if (origReplace) {
+            CSSStyleSheet.prototype.replace = async function(text) {
+              const finalCss = (typeof text === 'string' && hasExternalCssUrl(text))
+                ? await inlineCssUrlsInShim(text, TARGET_URL)
+                : text;
+              return origReplace.call(this, finalCss);
+            };
+          }
+        }
+      } catch (_) {}
+
+      const innerHTMLProto = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML') ? Element.prototype : HTMLElement.prototype;
+      const origInnerHTMLDesc = Object.getOwnPropertyDescriptor(innerHTMLProto, 'innerHTML');
+      const outerHTMLProto = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML') ? Element.prototype : HTMLElement.prototype;
+      const origOuterHTMLDesc = Object.getOwnPropertyDescriptor(outerHTMLProto, 'outerHTML');
+      const origInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+      const origCloneNode = Node.prototype.cloneNode;
+
+      function stripPendingExternalAssets(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return 0;
+        let count = 0;
+        const targets = [];
+        if (root.nodeType === 1) targets.push(root);
+        root.querySelectorAll('img, source, image, style, link, [style]').forEach((el) => targets.push(el));
+
+        for (const el of targets) {
+          const tag = el.tagName ? el.tagName.toUpperCase() : '';
+          if (tag === 'IMG') {
+            const rawSrc = origGetAttribute.call(el, 'src');
+            if (rawSrc && !isInternalUrl(rawSrc)) {
+              origSetAttribute.call(el, 'data-proxied-pending-src', resolveTarget(rawSrc));
+              origRemoveAttribute.call(el, 'src');
+              count++;
+            }
+            const rawSrcset = origGetAttribute.call(el, 'srcset');
+            if (rawSrcset && !isInternalUrl(rawSrcset)) {
+              origSetAttribute.call(el, 'data-proxied-pending-srcset', rawSrcset);
+              origRemoveAttribute.call(el, 'srcset');
+              count++;
+            }
+          } else if (tag === 'SOURCE') {
+            const rawSrc = origGetAttribute.call(el, 'src');
+            if (rawSrc && !isInternalUrl(rawSrc)) {
+              origSetAttribute.call(el, 'data-proxied-pending-src', resolveTarget(rawSrc));
+              origRemoveAttribute.call(el, 'src');
+              count++;
+            }
+            const rawSrcset = origGetAttribute.call(el, 'srcset');
+            if (rawSrcset && !isInternalUrl(rawSrcset)) {
+              origSetAttribute.call(el, 'data-proxied-pending-srcset', rawSrcset);
+              origRemoveAttribute.call(el, 'srcset');
+              count++;
+            }
+          } else if (tag === 'IMAGE') {
+            const rawHref = origGetAttribute.call(el, 'href') || origGetAttribute.call(el, 'xlink:href');
+            if (rawHref && !isInternalUrl(rawHref)) {
+              origSetAttribute.call(el, 'data-proxied-pending-href', resolveTarget(rawHref));
+              origRemoveAttribute.call(el, 'href');
+              origRemoveAttribute.call(el, 'xlink:href');
+              count++;
+            }
+          } else if (tag === 'LINK') {
+            const rel = (origGetAttribute.call(el, 'rel') || '').toLowerCase();
+            const href = origGetAttribute.call(el, 'href');
+            if (rel.includes('stylesheet') && href && !isInternalUrl(href)) {
+              origSetAttribute.call(el, 'data-proxied-pending-stylesheet', resolveTarget(href));
+              origRemoveAttribute.call(el, 'href');
+              count++;
+            }
+          } else if (tag === 'STYLE') {
+            const css = el.textContent || '';
+            if (hasExternalCssUrl(css)) {
+              origSetAttribute.call(el, 'data-proxied-pending-css', css);
+              el.textContent = neutralizeExternalCssUrls(css);
+              count++;
+            }
+          }
+          const st = origGetAttribute.call(el, 'style');
+          if (st && hasExternalCssUrl(st)) {
+            origSetAttribute.call(el, 'data-proxied-pending-style', st);
+            origSetAttribute.call(el, 'style', neutralizeExternalCssUrls(st));
+            count++;
+          }
+        }
+        return count;
+      }
+
+      function hydrateProxiedTree(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return;
+        const nodes = [];
+        if (root.nodeType === 1) nodes.push(root);
+        root.querySelectorAll('img, source, image, style, link, [data-proxied-pending-src], [data-proxied-pending-srcset], [data-proxied-pending-href], [data-proxied-pending-style], [data-proxied-pending-css], [data-proxied-pending-stylesheet], [style]').forEach((el) => nodes.push(el));
+
+        for (const el of nodes) {
+          const tag = el.tagName ? el.tagName.toUpperCase() : '';
+
+          const pendingSrc = origGetAttribute.call(el, 'data-proxied-pending-src');
+          if (pendingSrc) {
+            origRemoveAttribute.call(el, 'data-proxied-pending-src');
+            if (tag === 'IMG') loadProxiedImgSrc(el, pendingSrc);
+            else if (tag === 'SOURCE') loadProxiedSourceEl(el, 'src', pendingSrc);
+          } else if (tag === 'IMG') {
+            const rawSrc = origGetAttribute.call(el, 'src');
+            if (rawSrc && !isInternalUrl(rawSrc) && origGetAttribute.call(el, 'data-proxied-src') !== resolveTarget(rawSrc)) {
+              loadProxiedImgSrc(el, rawSrc);
+            }
+          } else if (tag === 'SOURCE') {
+            const rawSrc = origGetAttribute.call(el, 'src');
+            if (rawSrc && !isInternalUrl(rawSrc) && origGetAttribute.call(el, 'data-proxied-src') !== resolveTarget(rawSrc)) {
+              loadProxiedSourceEl(el, 'src', rawSrc);
+            }
+          }
+
+          const pendingSrcset = origGetAttribute.call(el, 'data-proxied-pending-srcset');
+          if (pendingSrcset) {
+            origRemoveAttribute.call(el, 'data-proxied-pending-srcset');
+            if (tag === 'IMG') loadProxiedImgSrcset(el, pendingSrcset);
+            else if (tag === 'SOURCE') loadProxiedSourceEl(el, 'srcset', pendingSrcset);
+          } else if (tag === 'IMG') {
+            const rawSrcset = origGetAttribute.call(el, 'srcset');
+            if (rawSrcset && !isInternalUrl(rawSrcset)) {
+              origRemoveAttribute.call(el, 'srcset');
+              loadProxiedImgSrcset(el, rawSrcset);
+            }
+          } else if (tag === 'SOURCE') {
+            const rawSrcset = origGetAttribute.call(el, 'srcset');
+            if (rawSrcset && !isInternalUrl(rawSrcset)) {
+              origRemoveAttribute.call(el, 'srcset');
+              loadProxiedSourceEl(el, 'srcset', rawSrcset);
+            }
+          }
+
+          const pendingHref = origGetAttribute.call(el, 'data-proxied-pending-href');
+          if (pendingHref) {
+            origRemoveAttribute.call(el, 'data-proxied-pending-href');
+            if (tag === 'IMAGE') loadProxiedSvgImage(el, 'href', pendingHref, null);
+          } else if (tag === 'IMAGE') {
+            const rawHref = origGetAttribute.call(el, 'href') || origGetAttribute.call(el, 'xlink:href');
+            if (rawHref && !isInternalUrl(rawHref) && origGetAttribute.call(el, 'data-proxied-href') !== resolveTarget(rawHref)) {
+              loadProxiedSvgImage(el, origGetAttribute.call(el, 'href') ? 'href' : 'xlink:href', rawHref, null);
+            }
+          }
+
+          const pendingStyle = origGetAttribute.call(el, 'data-proxied-pending-style');
+          if (pendingStyle) {
+            origRemoveAttribute.call(el, 'data-proxied-pending-style');
+            applyInlineStyleTextProxied(el, pendingStyle);
+          } else {
+            const st = origGetAttribute.call(el, 'style');
+            if (st && hasExternalCssUrl(st)) {
+              applyInlineStyleTextProxied(el, st);
+            }
+          }
+
+          const pendingCss = origGetAttribute.call(el, 'data-proxied-pending-css');
+          if (pendingCss) {
+            origRemoveAttribute.call(el, 'data-proxied-pending-css');
+            const tok = (el.__styleCssToken = (el.__styleCssToken || 0) + 1);
+            inlineCssUrlsInShim(pendingCss, TARGET_URL).then((inlined) => {
+              if (el.__styleCssToken !== tok) return;
+              el.textContent = inlined;
+            }).catch(() => {});
+          } else if (tag === 'STYLE') {
+            const css = el.textContent || '';
+            if (hasExternalCssUrl(css)) {
+              const cssBase = origGetAttribute.call(el, 'data-proxy-css-base') || TARGET_URL;
+              const tok = (el.__styleCssToken = (el.__styleCssToken || 0) + 1);
+              el.textContent = neutralizeExternalCssUrls(css);
+              inlineCssUrlsInShim(css, cssBase).then((inlined) => {
+                if (el.__styleCssToken !== tok) return;
+                el.textContent = inlined;
+              }).catch(() => {});
+            }
+          }
+
+          const pendingSheet = origGetAttribute.call(el, 'data-proxied-pending-stylesheet');
+          if (pendingSheet && tag === 'LINK') {
+            origRemoveAttribute.call(el, 'data-proxied-pending-stylesheet');
+            el.href = pendingSheet;
+          }
+        }
+      }
+
+      function sanitizeHtmlFragment(htmlStr, isSvgCtx) {
+        const str = String(htmlStr === null || htmlStr === undefined ? '' : htmlStr);
+        if (!/\\b(?:src|srcset|xlink:href|href)\\s*=|url\\s*\\(/i.test(str)) {
+          return { html: str, touched: false };
+        }
+        const tpl = origCreateElement('template');
+        origInnerHTMLDesc.set.call(tpl, isSvgCtx ? '<svg xmlns="http://www.w3.org/2000/svg">' + str + '</svg>' : str);
+        const root = isSvgCtx && tpl.content.firstElementChild ? tpl.content.firstElementChild : tpl.content;
+        const stripped = stripPendingExternalAssets(root);
+        if (!stripped) {
+          return { html: str, touched: false };
+        }
+        return {
+          html: isSvgCtx ? origInnerHTMLDesc.get.call(root) : origInnerHTMLDesc.get.call(tpl),
+          touched: true
+        };
+      }
+
+      if (origInnerHTMLDesc && origInnerHTMLDesc.configurable !== false) {
+        Object.defineProperty(innerHTMLProto, 'innerHTML', {
+          get: function() { return origInnerHTMLDesc.get.call(this); },
+          set: function(val) {
+            const tag = this.tagName ? this.tagName.toUpperCase() : '';
+            if (tag === 'STYLE') {
+              const css = String(val === null || val === undefined ? '' : val);
+              if (hasExternalCssUrl(css)) {
+                const tok = (this.__styleCssToken = (this.__styleCssToken || 0) + 1);
+                origInnerHTMLDesc.set.call(this, neutralizeExternalCssUrls(css));
+                inlineCssUrlsInShim(css, TARGET_URL).then((inlined) => {
+                  if (this.__styleCssToken !== tok) return;
+                  origInnerHTMLDesc.set.call(this, inlined);
+                }).catch(() => {});
+                return;
+              }
+              origInnerHTMLDesc.set.call(this, css);
+              return;
+            }
+            if (tag === 'SCRIPT' || tag === 'TEXTAREA' || tag === 'TITLE') {
+              origInnerHTMLDesc.set.call(this, val);
+              return;
+            }
+            const isSvgCtx = typeof SVGElement !== 'undefined' && this instanceof SVGElement && tag !== 'FOREIGNOBJECT';
+            const res = sanitizeHtmlFragment(val, isSvgCtx);
+            origInnerHTMLDesc.set.call(this, res.html);
+            if (res.touched && tag !== 'TEMPLATE') hydrateProxiedTree(this);
+          },
+          configurable: true
+        });
+      }
+
+      if (origOuterHTMLDesc && origOuterHTMLDesc.configurable !== false) {
+        Object.defineProperty(outerHTMLProto, 'outerHTML', {
+          get: function() { return origOuterHTMLDesc.get.call(this); },
+          set: function(val) {
+            const parent = this.parentNode;
+            const isSvgCtx = typeof SVGElement !== 'undefined' && parent instanceof SVGElement;
+            const res = sanitizeHtmlFragment(val, isSvgCtx);
+            origOuterHTMLDesc.set.call(this, res.html);
+            if (res.touched && parent) hydrateProxiedTree(parent);
+          },
+          configurable: true
+        });
+      }
+
+      if (origInsertAdjacentHTML) {
+        Element.prototype.insertAdjacentHTML = function(position, text) {
+          const pos = String(position || '').toLowerCase();
+          const targetParent = (pos === 'beforebegin' || pos === 'afterend') ? (this.parentNode || this) : this;
+          const isSvgCtx = typeof SVGElement !== 'undefined' && targetParent instanceof SVGElement && targetParent.tagName.toUpperCase() !== 'FOREIGNOBJECT';
+          const res = sanitizeHtmlFragment(text, isSvgCtx);
+          origInsertAdjacentHTML.call(this, position, res.html);
+          if (res.touched) hydrateProxiedTree(targetParent);
+        };
+      }
+
+      Node.prototype.cloneNode = function(deep) {
+        const cloned = origCloneNode.call(this, deep);
+        if (cloned && (cloned.nodeType === 1 || cloned.nodeType === 11)) {
+          stripPendingExternalAssets(cloned);
+        }
+        return cloned;
+      };
+
+      if (typeof Range !== 'undefined' && Range.prototype.createContextualFragment) {
+        const origCreateContextualFragment = Range.prototype.createContextualFragment;
+        Range.prototype.createContextualFragment = function(htmlStr) {
+          const parent = this.startContainer && this.startContainer.nodeType === 1 ? this.startContainer : this.startContainer?.parentElement;
+          const isSvgCtx = typeof SVGElement !== 'undefined' && parent instanceof SVGElement && parent.tagName.toUpperCase() !== 'FOREIGNOBJECT';
+          const res = sanitizeHtmlFragment(htmlStr, isSvgCtx);
+          return origCreateContextualFragment.call(this, res.html);
+        };
+      }
+
+      const __proxyDomObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === 'childList') {
+            for (const node of m.addedNodes) {
+              if (node && (node.nodeType === 1 || node.nodeType === 11)) {
+                hydrateProxiedTree(node);
+              }
+            }
+          } else if (m.type === 'attributes' && m.target && m.target.nodeType === 1) {
+            hydrateProxiedTree(m.target);
+          }
+        }
+      });
+
+      function startProxyDomObserver() {
+        const root = document.documentElement || document;
+        if (!root) return;
+        __proxyDomObserver.observe(root, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['src', 'srcset', 'style', 'href', 'xlink:href']
+        });
+        hydrateProxiedTree(root);
+      }
+
+      if (document.documentElement) {
+        startProxyDomObserver();
+      } else {
+        document.addEventListener('DOMContentLoaded', startProxyDomObserver, { once: true });
+      }
+
+      const origAttachShadow = Element.prototype.attachShadow;
+      if (origAttachShadow) {
+        Element.prototype.attachShadow = function(init) {
+          const shadow = origAttachShadow.call(this, init);
+          try {
+            __proxyDomObserver.observe(shadow, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['src', 'srcset', 'style', 'href', 'xlink:href']
+            });
+          } catch (_) {}
+          return shadow;
+        };
+      }
+
+      if (typeof ShadowRoot !== 'undefined') {
+        const origShadowInnerHTMLDesc = Object.getOwnPropertyDescriptor(ShadowRoot.prototype, 'innerHTML');
+        if (origShadowInnerHTMLDesc && origShadowInnerHTMLDesc.configurable !== false) {
+          Object.defineProperty(ShadowRoot.prototype, 'innerHTML', {
+            get: function() { return origShadowInnerHTMLDesc.get.call(this); },
+            set: function(val) {
+              const res = sanitizeHtmlFragment(val, false);
+              origShadowInnerHTMLDesc.set.call(this, res.html);
+              if (res.touched) hydrateProxiedTree(this);
+            },
+            configurable: true
+          });
+        }
+      }
+
       document.createElement = function(tagName, options) {
         const el = origCreateElement(tagName, options);
         if (typeof tagName !== 'string') return el;
@@ -1805,7 +3160,8 @@ function buildClientShim(targetUrl) {
             if (relTokens.includes('stylesheet')) {
               executeTunnelRequest(linkHref, { method: 'GET' }).then(async res => {
                 const buf = await res.arrayBuffer();
-                const css = rewriteCssRelativeUrls(new TextDecoder().decode(buf), res.url || linkHref);
+                const rawCss = rewriteCssRelativeUrls(new TextDecoder().decode(buf), res.url || linkHref);
+                const css = await inlineCssUrlsInShim(rawCss, res.url || linkHref);
                 const s = origCreateElement('style');
                 s.textContent = css;
                 (document.head || document.documentElement).appendChild(s);
@@ -1875,29 +3231,169 @@ function buildClientShim(targetUrl) {
               }
             }
           };
-        } else if (tag === 'img') {
-          patchImage(el);
         }
         return el;
       };
 
       try {
         const OrigWorker = window.Worker;
-        window.Worker = function(scriptURL, options) {
-          const resolved = resolveTarget(scriptURL);
-          if (!resolved.startsWith('blob:')) {
-            const shimmedWorkerCode = "importScripts(" + JSON.stringify(resolved) + ");";
-            const blob = new Blob([shimmedWorkerCode], { type: 'application/javascript' });
-            return new OrigWorker(URL.createObjectURL(blob), options);
-          }
-          return new OrigWorker(scriptURL, options);
-        };
+        if (OrigWorker) {
+          window.Worker = function(scriptURL, options) {
+            const rawUrl = (scriptURL && typeof scriptURL === 'object' && typeof scriptURL.href === 'string') ? scriptURL.href : String(scriptURL || '');
+            if (rawUrl.startsWith('data:')) {
+              return new OrigWorker(rawUrl, options);
+            }
+            const blobObj = isBlobObjectUrl(rawUrl) ? __proxyBlobMap.get(rawUrl) : null;
+            const resolved = isBlobObjectUrl(rawUrl) ? rawUrl : resolveTarget(rawUrl);
+            const isModule = options && String(options.type || '').toLowerCase() === 'module';
+            const pendingMsgs = [];
+            const listeners = {};
+            const wrappedListenerMap = new WeakMap();
+            let realWorker = null;
+            let terminated = false;
+            let _onmessage = null;
+            let _onerror = null;
+            let _onmessageerror = null;
+
+            const wrapHandler = (fn) => {
+              if (typeof fn !== 'function') return null;
+              if (wrappedListenerMap.has(fn)) return wrappedListenerMap.get(fn);
+              const w = function(e) {
+                if (e && e.data && (e.data.__proxyWorkerFetch || e.data.__proxyWorkerFetchRes || e.data.__proxyWorkerImport || e.data.__proxyWorkerImportRes || e.data.__proxyWorkerError)) return;
+                return fn.call(proxyWorker, e);
+              };
+              wrappedListenerMap.set(fn, w);
+              return w;
+            };
+
+            const proxyWorker = {
+              postMessage: function() {
+                const args = Array.from(arguments);
+                if (realWorker) realWorker.postMessage.apply(realWorker, args);
+                else if (!terminated) pendingMsgs.push(args);
+              },
+              terminate: function() {
+                terminated = true;
+                pendingMsgs.length = 0;
+                if (realWorker) realWorker.terminate();
+              },
+              addEventListener: function(type, fn, opts) {
+                const targetFn = (type === 'message') ? wrapHandler(fn) : fn;
+                if (realWorker) {
+                  realWorker.addEventListener(type, targetFn, opts);
+                } else {
+                  listeners[type] = listeners[type] || [];
+                  listeners[type].push({ fn: targetFn, opts });
+                }
+              },
+              removeEventListener: function(type, fn, opts) {
+                const targetFn = (type === 'message' && wrappedListenerMap.has(fn)) ? wrappedListenerMap.get(fn) : fn;
+                if (realWorker) {
+                  realWorker.removeEventListener(type, targetFn, opts);
+                } else if (listeners[type]) {
+                  listeners[type] = listeners[type].filter(item => item.fn !== targetFn);
+                }
+              },
+              dispatchEvent: function(ev) {
+                return realWorker ? realWorker.dispatchEvent(ev) : false;
+              }
+            };
+
+            Object.defineProperties(proxyWorker, {
+              onmessage: { get: () => _onmessage, set: (v) => { _onmessage = v; if (realWorker) realWorker.onmessage = wrapHandler(v); } },
+              onerror: { get: () => _onerror, set: (v) => { _onerror = v; if (realWorker) realWorker.onerror = v; } },
+              onmessageerror: { get: () => _onmessageerror, set: (v) => { _onmessageerror = v; if (realWorker) realWorker.onmessageerror = v; } }
+            });
+
+            const buildWorkerPromise = (async () => {
+              if (blobObj) {
+                const code = await blobObj.text();
+                if (isModule) {
+                  return await loadModuleCodeAsBlob(code, TARGET_URL, false, null, null, true);
+                }
+                const wb = new Blob([buildWorkerShimHeader(TARGET_URL) + sanitizeCode(code)], { type: 'application/javascript' });
+                const wbUrl = URL.createObjectURL(wb);
+                __proxyCreatedBlobs.add(wbUrl);
+                return wbUrl;
+              }
+              if (isBlobObjectUrl(rawUrl)) {
+                return rawUrl;
+              }
+              if (isModule) {
+                return await loadModuleAsBlob(resolved, null, true);
+              }
+              const res = await fetchModuleResource(resolved);
+              const wb = new Blob([buildWorkerShimHeader(res.url || resolved) + sanitizeCode(res.code)], { type: 'application/javascript' });
+              const wbUrl = URL.createObjectURL(wb);
+              __proxyCreatedBlobs.add(wbUrl);
+              return wbUrl;
+            })();
+
+            buildWorkerPromise.then((blobUrl) => {
+              if (terminated) return;
+              realWorker = new OrigWorker(blobUrl, options);
+              realWorker.addEventListener('message', (e) => {
+                if (!e.data) return;
+                if (e.data.__proxyWorkerFetch) {
+                  e.stopImmediatePropagation();
+                  const { __proxyWorkerFetch: fid, url: furl, init: finit } = e.data;
+                  window.fetch(furl, finit || {}).then(async (r) => {
+                    const buf = await r.arrayBuffer();
+                    const hdrs = [];
+                    if (r.headers && r.headers.forEach) r.headers.forEach((v, k) => hdrs.push([k, v]));
+                    realWorker.postMessage({ __proxyWorkerFetchRes: fid, status: r.status, statusText: r.statusText, headers: hdrs, buf }, [buf]);
+                  }).catch((err) => {
+                    realWorker.postMessage({ __proxyWorkerFetchRes: fid, error: err.message || String(err) });
+                  });
+                } else if (e.data.__proxyWorkerImport) {
+                  e.stopImmediatePropagation();
+                  const { __proxyWorkerImport: iid, url: iurl } = e.data;
+                  loadModuleAsBlob(resolveTarget(iurl), null, true).then((bUrl) => {
+                    realWorker.postMessage({ __proxyWorkerImportRes: iid, blobUrl: bUrl });
+                  }).catch((err) => {
+                    realWorker.postMessage({ __proxyWorkerImportRes: iid, error: err.message || String(err) });
+                  });
+                } else if (e.data.__proxyWorkerError) {
+                  e.stopImmediatePropagation();
+                  window.parent.postMessage({ type: 'PROXY_CONSOLE_ERROR', text: '[Worker] ' + e.data.__proxyWorkerError }, '*');
+                }
+              }, true);
+              realWorker.addEventListener('error', (errEv) => {
+                window.parent.postMessage({
+                  type: 'PROXY_CONSOLE_ERROR',
+                  text: '[Worker Error] ' + (errEv && errEv.message ? errEv.message : 'Worker failed to execute')
+                }, '*');
+              });
+              if (_onmessage) realWorker.onmessage = wrapHandler(_onmessage);
+              if (_onerror) realWorker.onerror = _onerror;
+              if (_onmessageerror) realWorker.onmessageerror = _onmessageerror;
+              Object.keys(listeners).forEach((t) => {
+                listeners[t].forEach(({ fn, opts }) => realWorker.addEventListener(t, fn, opts));
+              });
+              while (pendingMsgs.length > 0) {
+                const args = pendingMsgs.shift();
+                realWorker.postMessage.apply(realWorker, args);
+              }
+            }).catch((err) => {
+              window.parent.postMessage({
+                type: 'PROXY_CONSOLE_ERROR',
+                text: '[Worker Init Error] ' + (err && err.message ? err.message : String(err))
+              }, '*');
+              if (typeof _onerror === 'function') {
+                try { _onerror.call(proxyWorker, new ErrorEvent('error', { error: err, message: err.message || String(err) })); } catch (_) {}
+              }
+            });
+
+            return proxyWorker;
+          };
+          window.Worker.prototype = OrigWorker.prototype;
+        }
       } catch (e) {}
 
       const origFetch = window.fetch;
       window.fetch = async function(input, init = {}) {
         let rawUrl = (typeof input === "string") ? input : (input && input.url ? input.url : String(input));
-        if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("javascript:")) {
+        if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("javascript:") || isBlobObjectUrl(rawUrl)) {
           return origFetch.apply(window, arguments);
         }
 
@@ -1935,11 +3431,28 @@ function buildClientShim(targetUrl) {
           if (!reqHeaders["Content-Type"]) reqHeaders["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
         }
 
-        const response = await executeTunnelRequest(resolved, {
-          method: method,
-          headers: reqHeaders,
-          body: body
-        });
+        let curUrl = resolved;
+        let response = null;
+        for (let hop = 0; hop < 6; hop++) {
+          response = await executeTunnelRequest(curUrl, {
+            method: method,
+            headers: reqHeaders,
+            body: body
+          });
+          const st = response && typeof response.status === "number" ? response.status : 200;
+          if (st >= 300 && st < 400) {
+            const loc = getHeaderVal(response.headers, "location");
+            if (loc) {
+              curUrl = resolveTarget(new URL(loc, curUrl).href);
+              if (st === 301 || st === 302 || st === 303) {
+                method = "GET";
+                body = undefined;
+              }
+              continue;
+            }
+          }
+          break;
+        }
 
         const status = response.status || 200;
         const statusText = response.statusText || "OK";
@@ -1970,7 +3483,7 @@ function buildClientShim(targetUrl) {
         });
 
         try {
-          Object.defineProperty(finalRes, "url", { value: response.url || resolved, writable: false });
+          Object.defineProperty(finalRes, "url", { value: response.url || curUrl, writable: false });
         } catch(e) {}
 
         return finalRes;
@@ -2173,16 +3686,16 @@ function buildClientShim(targetUrl) {
         history.pushState = function(state, unused, url) {
           if (url) {
             const resolved = unwrap(resolveTarget(url));
-            if (resolved && resolved !== TARGET_URL && !isInternalUrl(resolved)) {
-              window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: resolved }, '*');
+            if (resolved && !isInternalUrl(resolved)) {
+              updateVirtualLocation(resolved, false);
             }
           }
         };
         history.replaceState = function(state, unused, url) {
           if (url) {
             const resolved = unwrap(resolveTarget(url));
-            if (resolved && resolved !== TARGET_URL && !isInternalUrl(resolved)) {
-              window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: resolved }, '*');
+            if (resolved && !isInternalUrl(resolved)) {
+              updateVirtualLocation(resolved, false);
             }
           }
         };
@@ -2205,7 +3718,7 @@ function buildClientShim(targetUrl) {
             const targetEl = document.getElementById(targetId) || document.querySelector('[name="' + CSS.escape(targetId) + '"]');
             if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth' });
           }
-          window.parent.postMessage({ type: 'PROXY_URL_UPDATE', url: TARGET_URL.split('#')[0] + trimmed }, '*');
+          updateVirtualLocation(currentTargetUrl.split('#')[0] + trimmed, true);
           return;
         }
 
@@ -2378,6 +3891,13 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     }
   });
 
+  doc.querySelectorAll("[style]").forEach(el => {
+    const rawStyle = el.getAttribute("style");
+    if (rawStyle && /url\(/i.test(rawStyle)) {
+      el.setAttribute("style", rewriteCssRelativeUrls(rawStyle, targetUrl));
+    }
+  });
+
   const fragmentTags = [...doc.querySelectorAll("include-fragment, poll-include-fragment, turbo-frame")];
   if (fragmentTags.length > 0) {
     logProxyConsole(`[Inliner] Pre-fetching ${fragmentTags.length} dynamic fragments...`);
@@ -2451,7 +3971,7 @@ async function processAndRewriteHtml(rawHtml, targetUrl, iframeTarget = null) {
     }));
   }
 
-  doc.querySelectorAll('link[rel~="modulepreload" i], link[rel~="prefetch" i], link[rel~="dns-prefetch" i], link[rel~="preconnect" i], link[rel~="preload" i][as="script" i], link[rel~="preload" i][as="style" i]').forEach(el => {
+  doc.querySelectorAll('link[rel~="modulepreload" i], link[rel~="prefetch" i], link[rel~="dns-prefetch" i], link[rel~="preconnect" i], link[rel~="preload" i]').forEach(el => {
     const href = el.getAttribute("href");
     if (href) {
       el.setAttribute("data-proxied-href", resolveRelative(href, targetUrl));
