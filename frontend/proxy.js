@@ -1,4 +1,3 @@
-  <script>
 // Proxy
 const WASM_URL = "https://cdn.jsdelivr.net/npm/libcurl.js@0.7.1/libcurl.wasm";
 
