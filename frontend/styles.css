@@ -808,6 +808,38 @@ body.admin-graph-mode .admin-feature:not(.mini-info-container) {
   flex-shrink: 0;
 }
 
+#proxy-console-tabs {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1px solid var(--theme);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.proxy-console-tab {
+  flex: 1;
+  width: auto;
+  text-align: center;
+  padding: 4px 8px;
+  border-right: 1px solid var(--theme);
+  font-weight: bold;
+}
+
+.proxy-console-tab:last-child {
+  border-right: none;
+}
+
+.proxy-console-tab:hover {
+  text-shadow: none;
+}
+
+.proxy-console-tab.active,
+.proxy-console-tab.active:hover {
+  background: var(--theme);
+  color: #000000;
+  text-shadow: none;
+}
+
 #proxy-console {
   width: 100%;
   height: 100%;
@@ -826,6 +858,42 @@ body.admin-graph-mode .admin-feature:not(.mini-info-container) {
   overflow-wrap: break-word;
   word-break: break-word;
   box-sizing: border-box;
+}
+
+#proxy-sources {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  background: transparent;
+  color: var(--theme);
+  font-family: inherit;
+  font-size: 1vw;
+  padding: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+
+.proxy-source-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme) 25%, transparent);
+}
+
+.proxy-source-status {
+  flex-shrink: 0;
+  min-width: 3.2em;
+  font-weight: bold;
+}
+
+.proxy-source-url {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
 }
 
 #bookmark-bar {
