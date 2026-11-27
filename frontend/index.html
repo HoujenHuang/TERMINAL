@@ -362,7 +362,12 @@
                   <button type="button" onclick="clearProxyConsole()" style="width: auto;">Clear</button>
                 </div>
               </div>
+              <div id="proxy-console-tabs">
+                <button type="button" id="proxy-tab-console" class="proxy-console-tab active" onclick="switchProxyConsoleTab('console')">Console</button>
+                <button type="button" id="proxy-tab-sources" class="proxy-console-tab" onclick="switchProxyConsoleTab('sources')">Sources</button>
+              </div>
               <textarea id="proxy-console" readonly spellcheck="false"></textarea>
+              <div id="proxy-sources" class="invisible"></div>
             </div>
           </div>
 
